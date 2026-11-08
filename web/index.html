@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Athrill Studio</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">Athrill Studio <span>See your firmware run.</span></div>
+  <label>Board <select id="board"></select></label>
+  <label>Firmware <select id="firmware"></select></label>
+  <button id="run">Run</button>
+  <button id="stop" disabled>Stop</button>
+  <span id="state" class="state idle">idle</span>
+</header>
+<nav>
+  <button class="tab active" data-tab="console">Console</button>
+  <button class="tab" data-tab="devicetree">Devicetree</button>
+  <span id="boardinfo"></span>
+</nav>
+<main>
+  <section id="console" class="panel active">
+    <div id="terminal"></div>
+    <details id="logbox"><summary>Athrill log <span id="logcount"></span></summary><pre id="log"></pre></details>
+  </section>
+  <section id="devicetree" class="panel">
+    <div id="graph"></div>
+    <aside>
+      <h2 id="dtmodel"></h2>
+      <div id="legend"></div>
+      <div id="detail"><p>Click a node.</p></div>
+    </aside>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

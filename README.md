@@ -79,9 +79,33 @@ Availability depends on the corresponding Athrill target, device models, and fir
 4. **Modularity** — Keep the emulator, device models, browser backend, and frontend independently maintainable.
 5. **Extensibility** — Support additional boards and peripherals without redesigning the UI.
 
+## Try it (first milestone)
+
+Today Studio starts Zephyr's samples on the emulated **NUCLEO-F767ZI** and **NUCLEO-H743ZI**, shows their console in
+the browser, and draws each board's Devicetree as a graph.
+
+```sh
+tools/fetch.sh                 # the athrill-target-stm32 v0.3.0 release and athrill-device's board DTBs, into work/
+python3 -m pip install aiohttp pyyaml
+python3 -m studio.server       # then open http://127.0.0.1:8765/
+```
+
+- **Console**: pick a board and a firmware (Zephyr `hello_world`, `synchronization`, `philosophers`) and press
+  Run. The firmware's console is a terminal (xterm.js), so `philosophers` redraws its table in place. Athrill's own
+  lines are under "Athrill log".
+- **Devicetree**: the board's DTB as a graph. Nodes are the enabled nodes with a `compatible`. The grey lines are the
+  bus tree, and the dashed ones are references: interrupt, DMA, clock, reset, GPIO, pin control. Blue nodes are the ones
+  Athrill built a model for in the last run. Click a node for its compatible, registers, model and references.
+- `python3 tests/smoke.py` checks the path end to end. It starts the server, reads the Devicetree, runs
+  `hello_world` through the API and requires the greeting and the models over the WebSocket.
+
+The backend (`studio/server.py`) runs Athrill unchanged and only reads what it prints. Boards are listed in
+`boards.yaml`. The DTB is read by `studio/dtb.py` (no dependency). The browser gets JSON over REST and a WebSocket
+for now; a binary transport (Hakoniwa PDU) can replace the stream for high-rate device data.
+
 ## Project Status
 
-**Early development — work in progress.**
+**Early development — work in progress.** The first milestone above runs; the rest of this README is the direction.
 
 This README describes the intended direction of Athrill Studio. The listed features are not all guaranteed to be available yet.
 

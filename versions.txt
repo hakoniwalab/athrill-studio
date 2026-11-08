@@ -1,0 +1,4 @@
+# What tools/fetch.sh fetches: the athrill-target-stm32 release (athrill3 and
+# the Zephyr sample ELFs) and the athrill-device commit of its board DTBs.
+athrill-target-stm32 v0.3.0
+athrill-device ff23daf380cab7b483dbf5f84f52a49d837898ea
