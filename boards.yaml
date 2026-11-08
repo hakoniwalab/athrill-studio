@@ -1,0 +1,73 @@
+# The virtual boards Studio offers. A board is its Devicetree (athrill-device
+# boards/), the Athrill target that runs it, and the firmware it can start.
+# Paths are relative to this repository (tools/fetch.sh fills work/).
+boards:
+  - id: nucleo-f767zi
+    title: ST NUCLEO-F767ZI
+    soc: STM32F767ZI (Cortex-M7, 216 MHz)
+    athrill: work/athrill3-stm32/athrill3
+    devicetree: work/athrill-device/boards/nucleo-f767zi/nucleo-f767zi.dtb
+    cpu_mhz: 216
+    memory:
+      - ROM, 0x08000000, 2048
+      - RAM, 0x20000000, 512
+    device_config:
+      - DEBUG_FUNC_ENABLE_SKIP_CLOCK 1
+      - DEVICE_CONFIG_STM32_BOOT_ADDR 0x08000000
+      - DISABLE_SYMBOL_UNDERSCORE 1
+      - DEVICE_CONFIG_STM32_CONSOLE_UART 3
+    firmware:
+      - id: zephyr-hello-world
+        title: Zephyr hello_world
+        elf: work/zephyr-stm32/hello_world-nucleo_f767zi.elf
+        seconds: 2
+      - id: zephyr-synchronization
+        title: Zephyr synchronization (two threads, semaphores)
+        elf: work/zephyr-stm32/synchronization-nucleo_f767zi.elf
+        seconds: 10
+      - id: zephyr-philosophers
+        title: Zephyr philosophers (six threads, mutexes)
+        elf: work/zephyr-stm32/philosophers-nucleo_f767zi.elf
+        seconds: 60
+  - id: nucleo-h743zi
+    title: ST NUCLEO-H743ZI
+    soc: STM32H743ZI (Cortex-M7, 480 MHz)
+    athrill: work/athrill3-stm32/athrill3
+    devicetree: work/athrill-device/boards/nucleo-h743zi/nucleo-h743zi.dtb
+    cpu_mhz: 480
+    memory:
+      - ROM, 0x08000000, 2048
+      - RAM, 0x00000000, 64
+      - RAM, 0x20000000, 128
+      - RAM, 0x24000000, 512
+      - RAM, 0x30000000, 288
+      - RAM, 0x38000000, 64
+      - RAM, 0x38800000, 4
+    device_config:
+      - DEBUG_FUNC_ENABLE_SKIP_CLOCK 1
+      - DEVICE_CONFIG_STM32_BOOT_ADDR 0x08000000
+      - DISABLE_SYMBOL_UNDERSCORE 1
+      - DEVICE_CONFIG_STM32_CONSOLE_UART 3
+    firmware:
+      - id: zephyr-hello-world
+        title: Zephyr hello_world
+        elf: work/zephyr-stm32/hello_world-nucleo_h743zi.elf
+        seconds: 2
+      - id: zephyr-synchronization
+        title: Zephyr synchronization (two threads, semaphores)
+        elf: work/zephyr-stm32/synchronization-nucleo_h743zi.elf
+        seconds: 10
+      - id: zephyr-philosophers
+        title: Zephyr philosophers (six threads, mutexes)
+        elf: work/zephyr-stm32/philosophers-nucleo_h743zi.elf
+        seconds: 60
+  - id: pixhawk4
+    title: Holybro Pixhawk 4 (FMUv5)
+    soc: STM32F765 (Cortex-M7, 216 MHz)
+    devicetree: work/athrill-device/boards/pixhawk4/pixhawk4.dtb
+    firmware: []
+  - id: pixhawk6c
+    title: Holybro Pixhawk 6C
+    soc: STM32H743 (Cortex-M7, 480 MHz)
+    devicetree: work/athrill-device/boards/pixhawk6c/pixhawk6c.dtb
+    firmware: []

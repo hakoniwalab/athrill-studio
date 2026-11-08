@@ -12,3 +12,9 @@ modern.jsonp
 resources/sass/.sass-cache/
 resources/.arch-internal-preview.css
 .arch-internal-preview.css
+
+# Athrill Studio
+work/
+__pycache__/
+*.pyc
+.claude/
