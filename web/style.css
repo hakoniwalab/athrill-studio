@@ -45,3 +45,5 @@ aside h2 { font-size: 15px; margin: 0 0 8px; }
   #devicetree { flex-direction: column; }
   aside { width: auto; border-left: 0; border-top: 1px solid var(--line); max-height: 40%; }
 }
+.meter { font-variant-numeric: tabular-nums; color: var(--muted); }
+.meter b { color: var(--ink); }

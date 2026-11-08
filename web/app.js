@@ -74,7 +74,8 @@ $("run").addEventListener("click", async () => {
   $("log").textContent = ""; logLines = 0; $("logcount").textContent = "";
   models = {}; colorModels();
   const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ board: $("board").value, firmware: $("firmware").value }) });
+    body: JSON.stringify({ board: $("board").value, firmware: $("firmware").value,
+                           real_time: $("realtime").checked }) });
   if (!res.ok) term.write(`\x1b[31m${await res.text()}\x1b[0m\r\n`);
 });
 $("stop").addEventListener("click", () => fetch("/api/stop", { method: "POST" }));
@@ -87,6 +88,7 @@ function connect() {
     else if (m.type === "athrill") addLog(m.line);
     else if (m.type === "model" && m.board === $("board").value) { models[m.path] = m; colorModels(); }
     else if (m.type === "state") showState(m);
+    else if (m.type === "progress") showProgress(m);
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }
@@ -99,11 +101,31 @@ function addLog(line) {
   log.scrollTop = log.scrollHeight;
 }
 
+// Virtual time and the real-time factor, from Athrill's PROGRESS reports:
+// the RTF over the last second of wall time, and over the whole run.
+let samples = [];
+function showProgress(m) {
+  samples.push(m);
+  while (samples.length > 2 && m.wall_usec - samples[1].wall_usec > 1e6) samples.shift();
+  const first = samples[0];
+  const recent = m.wall_usec > first.wall_usec ? (m.virtual_usec - first.virtual_usec) / (m.wall_usec - first.wall_usec) : 0;
+  const total = m.wall_usec > 0 ? m.virtual_usec / m.wall_usec : 0;
+  $("meter").innerHTML = `virtual <b>${(m.virtual_usec / 1e6).toFixed(1)} s</b> · RTF <b>${recent.toFixed(2)}</b>`
+    + ` <span title="over the whole run">(avg ${total.toFixed(2)})</span>`;
+}
+
 function showState(m) {
   const el = $("state");
   el.className = `state ${m.state}`;
-  if (m.state === "running") el.textContent = `running ${m.firmware} (${m.virtual_seconds} s virtual)`;
-  else if (m.state === "exited") el.textContent = `exited (${m.wall_seconds} s wall)`;
+  if (m.state === "running") {
+    el.textContent = `running ${m.firmware} (${m.virtual_seconds} s virtual${m.real_time ? ", real time" : ""})`;
+    samples = [];
+    $("meter").textContent = "";
+  }
+  else if (m.state === "exited") {
+    el.textContent = `exited (${m.wall_seconds} s wall)`;
+    if (!samples.length) $("meter").textContent = "no virtual-time report (this athrill3 has no DEBUG_FUNC_PROGRESS_MSEC)";
+  }
   else el.textContent = m.state;
   updateButtons(m.state === "running");
 }

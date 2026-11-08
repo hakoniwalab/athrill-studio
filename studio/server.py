@@ -5,12 +5,14 @@
 REST
   GET  /api/boards                      the boards of boards.yaml
   GET  /api/boards/{id}/devicetree      nodes and references of the board's DTB
-  POST /api/run   {"board", "firmware"} start the firmware on athrill3 (one run at a time)
+  POST /api/run   {"board", "firmware", "real_time"}  start the firmware on athrill3 (one run at a time);
+                  real_time keeps virtual time from running ahead of the wall clock
   POST /api/stop                        stop the run
 WebSocket /ws, JSON messages:
   {"type": "console", "data": "..."}    the firmware's console output, as written
   {"type": "athrill", "line": "..."}    Athrill's own lines (start-up, end state)
   {"type": "model", "path", "compatible", "model"}  a model Athrill built from the DTB
+  {"type": "progress", "clock", "virtual_usec", "wall_usec"}  Athrill's virtual time, every 200 ms of it
   {"type": "state", "state": "running" | "exited", ...}
 
 Athrill is run unchanged; Studio only reads what it prints. The stream goes
@@ -42,7 +44,14 @@ ATHRILL_LINE = re.compile(
     r"Not found: |DEBUG_FUNC_|EXIT for |SAMPLES |FINAL |ERROR|WARNING|search_region|mpu_)"
 )
 DEVICE_MODEL = re.compile(r"^DEVICE_MODEL path=(\S+) compatible=(\S+) provider=(\S+) model=(\S+)")
+PROGRESS = re.compile(r"^PROGRESS clock=(\d+) virtual_usec=(\d+) wall_usec=(\d+)")
+PROGRESS_MSEC = 200   # how often Athrill reports its virtual time (DEBUG_FUNC_PROGRESS_MSEC)
 FLUSH_SECONDS = 0.05
+
+
+def athrill_path(board: dict) -> str:
+    """The board's athrill3, or STUDIO_ATHRILL3 for every board (a local build)."""
+    return os.environ.get("STUDIO_ATHRILL3") or str(ROOT / board["athrill"])
 
 
 def load_boards() -> list[dict]:
@@ -75,24 +84,31 @@ class Run:
         self.info: dict = {"state": "idle"}
         self.models: dict[str, dict] = {}   # the models of the last run, for browsers that join later
 
-    async def start(self, board: dict, firmware: dict) -> None:
+    async def start(self, board: dict, firmware: dict, real_time: bool = False) -> None:
         await self.stop()
         self.models = {}
         work = ROOT / "work" / "run" / board["id"]
         work.mkdir(parents=True, exist_ok=True)
         (work / "memory.txt").write_text("\n".join(board["memory"]) + "\n")
+        # The progress report needs an athrill3 with DEBUG_FUNC_PROGRESS_MSEC
+        # (toppers/athrill#90); an older one ignores the key, and Studio then
+        # shows the wall time only.
         config = [f"DEVICE_CPU_FREQ {board['cpu_mhz']}", *board["device_config"],
-                  f"DEVICE_CONFIG_DEVICE_TREE {ROOT / board['devicetree']}"]
+                  f"DEVICE_CONFIG_DEVICE_TREE {ROOT / board['devicetree']}",
+                  f"DEBUG_FUNC_PROGRESS_MSEC {PROGRESS_MSEC}"]
+        if real_time:
+            config.append("DEBUG_FUNC_REAL_TIME 1")
         (work / "device_config.txt").write_text("\n".join(config) + "\n")
         clocks = board["cpu_mhz"] * 1_000_000 * int(firmware.get("seconds", 10))
-        command = [str(ROOT / board["athrill"]), "-c1", "-m", "memory.txt", "-d", "device_config.txt",
+        command = [athrill_path(board), "-c1", "-m", "memory.txt", "-d", "device_config.txt",
                    "-t", str(clocks), str(ROOT / firmware["elf"])]
         env = dict(os.environ)
         self.process = await asyncio.create_subprocess_exec(
             *command, cwd=work, env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.info = {"state": "running", "board": board["id"], "firmware": firmware["id"],
-                     "virtual_seconds": firmware.get("seconds"), "started": time.time()}
+                     "virtual_seconds": firmware.get("seconds"), "real_time": real_time,
+                     "started": time.time()}
         await self.hub.publish({"type": "state", **self.info})
         self.tasks = [asyncio.create_task(self.read_stdout()),
                       asyncio.create_task(self.read_stderr()),
@@ -155,8 +171,13 @@ class Run:
         async for raw in self.process.stderr:
             line = raw.decode("utf-8", "replace").rstrip()
             m = DEVICE_MODEL.match(line)
+            p = PROGRESS.match(line)
             if m:
                 await self.model(m)
+            elif p:
+                virtual_usec, wall_usec = int(p.group(2)), int(p.group(3))
+                await self.hub.publish({"type": "progress", "clock": int(p.group(1)),
+                                        "virtual_usec": virtual_usec, "wall_usec": wall_usec})
             else:
                 await self.hub.publish({"type": "athrill", "line": line})
 
@@ -203,10 +224,10 @@ def make_app() -> web.Application:
         firmware = next((f for f in board.get("firmware", []) if f["id"] == body.get("firmware")), None)
         if firmware is None:
             raise web.HTTPBadRequest(text="no such firmware on this board")
-        for need in (board["athrill"], firmware["elf"], board["devicetree"]):
+        for need in (athrill_path(board), firmware["elf"], board["devicetree"]):
             if not (ROOT / need).exists():
                 raise web.HTTPBadRequest(text=f"{need} not found: run tools/fetch.sh")
-        await run.start(board, firmware)
+        await run.start(board, firmware, bool(body.get("real_time")))
         return web.json_response(run.info)
 
     async def stop(_request: web.Request) -> web.Response:
