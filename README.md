@@ -93,6 +93,11 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
 - **Console**: pick a board and a firmware (Zephyr `hello_world`, `synchronization`, `philosophers`) and press
   Run. The firmware's console is a terminal (xterm.js), so `philosophers` redraws its table in place. Athrill's own
   lines are under "Athrill log".
+- **Real time and RTF**: the "Real time" switch keeps virtual time from running ahead of the wall clock
+  (`DEBUG_FUNC_REAL_TIME 1`), so `synchronization` greets every 0.5 s of your time. Without it Athrill runs as fast as
+  it can. The meter shows the virtual time and the real-time factor from Athrill's progress report
+  (`DEBUG_FUNC_PROGRESS_MSEC`, toppers/athrill#90). Until a release of athrill3 has it, set `STUDIO_ATHRILL3` to a
+  locally built `athrill3`; the release's `athrill3` runs too, without the meter.
 - **Devicetree**: the board's DTB as a graph. Nodes are the enabled nodes with a `compatible`. The grey lines are the
   bus tree, and the dashed ones are references: interrupt, DMA, clock, reset, GPIO, pin control. Blue nodes are the ones
   Athrill built a model for in the last run. Click a node for its compatible, registers, model and references.

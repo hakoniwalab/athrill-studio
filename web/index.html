@@ -12,9 +12,11 @@
   <div class="brand">Athrill Studio <span>See your firmware run.</span></div>
   <label>Board <select id="board"></select></label>
   <label>Firmware <select id="firmware"></select></label>
+  <label title="Keep virtual time from running ahead of the wall clock"><input type="checkbox" id="realtime"> Real time</label>
   <button id="run">Run</button>
   <button id="stop" disabled>Stop</button>
   <span id="state" class="state idle">idle</span>
+  <span id="meter" class="meter"></span>
 </header>
 <nav>
   <button class="tab active" data-tab="console">Console</button>
