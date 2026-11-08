@@ -8,11 +8,14 @@ REST
   POST /api/run   {"board", "firmware", "real_time"}  start the firmware on athrill3 (one run at a time);
                   real_time keeps virtual time from running ahead of the wall clock
   POST /api/stop                        stop the run
+  POST /api/flight/takeoff {"altitude"} | /api/flight/land   for a firmware with a MAVLink link
 WebSocket /ws, JSON messages:
   {"type": "console", "data": "..."}    the firmware's console output, as written
   {"type": "athrill", "line": "..."}    Athrill's own lines (start-up, end state)
   {"type": "model", "path", "compatible", "model"}  a model Athrill built from the DTB
   {"type": "progress", "clock", "virtual_usec", "wall_usec"}  Athrill's virtual time, every 200 ms of it
+  {"type": "flight", "connected", "armed", "mode", "alt", "x", "y", "z", "roll", "pitch", "yaw"}  10 Hz
+  {"type": "flight_status", "text"}     PX4's status texts and the ground station's steps
   {"type": "state", "state": "running" | "exited", ...}
 
 Athrill is run unchanged; Studio only reads what it prints. The stream goes
@@ -27,6 +30,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -34,6 +38,7 @@ import yaml
 from aiohttp import WSMsgType, web
 
 from . import dtb
+from .flight import Flight
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -83,38 +88,54 @@ class Run:
         self.tasks: list[asyncio.Task] = []
         self.info: dict = {"state": "idle"}
         self.models: dict[str, dict] = {}   # the models of the last run, for browsers that join later
+        self.flight: Flight | None = None
 
     async def start(self, board: dict, firmware: dict, real_time: bool = False) -> None:
         await self.stop()
         self.models = {}
         work = ROOT / "work" / "run" / board["id"]
         work.mkdir(parents=True, exist_ok=True)
+        # {run}: this run's directory, {root}: this repository
+        expand = lambda line: line.replace("{run}", str(work)).replace("{root}", str(ROOT))
+        for seed in firmware.get("copy", []):   # writable images start from their seed every run
+            shutil.copyfile(ROOT / seed, work / Path(seed).name)
         (work / "memory.txt").write_text("\n".join(board["memory"]) + "\n")
         # The progress report needs an athrill3 with DEBUG_FUNC_PROGRESS_MSEC
         # (toppers/athrill#90); an older one ignores the key, and Studio then
         # shows the wall time only.
         config = [f"DEVICE_CPU_FREQ {board['cpu_mhz']}", *board["device_config"],
+                  *firmware.get("device_config", []),
                   f"DEVICE_CONFIG_DEVICE_TREE {ROOT / board['devicetree']}",
                   f"DEBUG_FUNC_PROGRESS_MSEC {PROGRESS_MSEC}"]
         if real_time:
             config.append("DEBUG_FUNC_REAL_TIME 1")
-        (work / "device_config.txt").write_text("\n".join(config) + "\n")
-        clocks = board["cpu_mhz"] * 1_000_000 * int(firmware.get("seconds", 10))
-        command = [athrill_path(board), "-c1", "-m", "memory.txt", "-d", "device_config.txt",
+        (work / "device_config.txt").write_text("\n".join(expand(line) for line in config) + "\n")
+        seconds = int(firmware.get("seconds", 10))
+        clocks = board["cpu_mhz"] * 1_000_000 * seconds if seconds > 0 else -1
+        command = [athrill_path(board), "-c1", "-m", str(work / "memory.txt"), "-d", str(work / "device_config.txt"),
                    "-t", str(clocks), str(ROOT / firmware["elf"])]
-        env = dict(os.environ)
+        cwd = ROOT / firmware["cwd"] if "cwd" in firmware else work
         self.process = await asyncio.create_subprocess_exec(
-            *command, cwd=work, env=env,
+            *command, cwd=cwd, env=dict(os.environ),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.info = {"state": "running", "board": board["id"], "firmware": firmware["id"],
-                     "virtual_seconds": firmware.get("seconds"), "real_time": real_time,
-                     "started": time.time()}
+                     "virtual_seconds": seconds or None, "real_time": real_time,
+                     "flight": "mavlink" in firmware, "started": time.time()}
         await self.hub.publish({"type": "state", **self.info})
         self.tasks = [asyncio.create_task(self.read_stdout()),
                       asyncio.create_task(self.read_stderr()),
                       asyncio.create_task(self.wait())]
+        if "mavlink" in firmware:
+            loop = asyncio.get_running_loop()
+            publish = lambda message: loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self.hub.publish(message)))
+            self.flight = Flight(firmware["mavlink"], publish)
+            self.flight.start()
 
     async def stop(self) -> None:
+        if self.flight is not None:
+            self.flight.stop()
+            self.flight = None
         if self.process is not None and self.process.returncode is None:
             self.process.terminate()
             try:
@@ -234,6 +255,19 @@ def make_app() -> web.Application:
         await run.stop()
         return web.json_response(run.info)
 
+    async def flight_command(request: web.Request) -> web.Response:
+        if run.flight is None:
+            raise web.HTTPConflict(text="no flying firmware is running")
+        name = request.match_info["command"]
+        body = await request.json() if request.can_read_body else {}
+        if name == "takeoff":
+            run.flight.command("takeoff", altitude=float(body.get("altitude", 2.5)))
+        elif name == "land":
+            run.flight.command("land")
+        else:
+            raise web.HTTPNotFound(text="takeoff or land")
+        return web.json_response({"queued": name})
+
     async def status(_request: web.Request) -> web.Response:
         return web.json_response(run.info)
 
@@ -262,6 +296,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/run", start)
     app.router.add_post("/api/stop", stop)
     app.router.add_get("/api/status", status)
+    app.router.add_post("/api/flight/{command}", flight_command)
     app.router.add_get("/ws", websocket)
     app.on_shutdown.append(on_shutdown)
     return app

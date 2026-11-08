@@ -21,6 +21,7 @@
 <nav>
   <button class="tab active" data-tab="console">Console</button>
   <button class="tab" data-tab="devicetree">Devicetree</button>
+  <button class="tab" data-tab="flight">Flight</button>
   <span id="boardinfo"></span>
 </nav>
 <main>
@@ -36,9 +37,22 @@
       <div id="detail"><p>Click a node.</p></div>
     </aside>
   </section>
+  <section id="flight" class="panel">
+    <div id="view3d"></div>
+    <aside>
+      <h2>Hakoniwa Drone x500</h2>
+      <p class="hint">Board Pixhawk 4, firmware "PX4 ... x500", Run; then take off when PX4 is ready.</p>
+      <div class="buttons"><button id="takeoff" disabled>Take off 2.5 m</button> <button id="land" disabled>Land</button></div>
+      <table id="telemetry"></table>
+      <canvas id="altchart" width="270" height="120"></canvas>
+      <pre id="flightlog"></pre>
+    </aside>
+  </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="/web/app.js"></script>
+<script src="/web/flight.js"></script>
 </body>
 </html>

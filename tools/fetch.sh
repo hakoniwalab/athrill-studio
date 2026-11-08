@@ -2,7 +2,7 @@
 # Fetches what Athrill Studio runs into work/, at the versions of versions.txt:
 #   tools/fetch.sh
 # - the athrill3 release of athrill-target-stm32 for this host, with bindings/
-# - the Zephyr sample ELFs of the same release
+# - the Zephyr sample ELFs and the PX4 ELF (px4_fmu-v5_default) of the same release
 # - athrill-device at the pinned commit (the board Devicetrees)
 # Downloads are checked against the release's SHA256SUMS. Needs curl, git, tar.
 set -eu
@@ -23,8 +23,9 @@ get() { [ -s "$1" ] || curl -fsSLO --retry 5 --retry-all-errors "$URL/$1"; }
 get SHA256SUMS
 get "athrill3-$STM32-$HOST.tar.gz"
 get "zephyr-samples-$STM32.tar.gz"
+get px4_fmu-v5_default.elf
 if command -v sha256sum > /dev/null; then SUM="sha256sum -c"; else SUM="shasum -a 256 -c"; fi
-grep -E " (athrill3-$STM32-$HOST|zephyr-samples-$STM32)\.tar\.gz\$" SHA256SUMS > SHA256SUMS.used
+grep -E " ((athrill3-$STM32-$HOST|zephyr-samples-$STM32)\.tar\.gz|px4_fmu-v5_default\.elf)\$" SHA256SUMS > SHA256SUMS.used
 $SUM SHA256SUMS.used
 tar xzf "athrill3-$STM32-$HOST.tar.gz" -C "$WORK"
 tar xzf "zephyr-samples-$STM32.tar.gz" -C "$WORK"

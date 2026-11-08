@@ -98,6 +98,14 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   it can. The meter shows the virtual time and the real-time factor from Athrill's progress report
   (`DEBUG_FUNC_PROGRESS_MSEC`, toppers/athrill#90). Until a release of athrill3 has it, set `STUDIO_ATHRILL3` to a
   locally built `athrill3`; the release's `athrill3` runs too, without the meter.
+- **Flight**: on the Pixhawk 4, "PX4 v1.17.0 flying the Hakoniwa Drone x500 (in process)" runs PX4 with its own
+  drivers on the emulated chips, whose samples come from the Hakoniwa Drone x500 physics and sensor models running
+  inside Athrill (no Hakoniwa runtime, no second process). Studio talks MAVLink to PX4 (TCP 5760): "Take off 2.5 m"
+  and "Land", the x500 in 3D, its altitude and attitude. One-time setup, with the in-process sensor device built from
+  athrill-device (`board/common`, `HAKO_SENSOR_DEVICE_BUILD_INPROC=ON`), a Hakoniwa Drone release, the x500 airframe
+  and PX4's first-boot images (athrill-target-stm32 `examples/px4-hakoniwa`):
+  `tools/setup-drone.sh <inproc library dir> <hakoniwa-drone-core> <airframe dir> <seed dir>`.
+  `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API.
 - **Devicetree**: the board's DTB as a graph. Nodes are the enabled nodes with a `compatible`. The grey lines are the
   bus tree, and the dashed ones are references: interrupt, DMA, clock, reset, GPIO, pin control. Blue nodes are the ones
   Athrill built a model for in the last run. Click a node for its compatible, registers, model and references.

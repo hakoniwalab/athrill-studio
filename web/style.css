@@ -47,3 +47,13 @@ aside h2 { font-size: 15px; margin: 0 0 8px; }
 }
 .meter { font-variant-numeric: tabular-nums; color: var(--muted); }
 .meter b { color: var(--ink); }
+#flight { flex-direction: row; }
+#view3d { flex: 1; min-width: 0; position: relative; }
+.hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
+.buttons { margin-bottom: 10px; }
+#telemetry { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+#telemetry td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+#telemetry td:last-child { text-align: right; }
+#altchart { width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+#flightlog { font-size: 11px; max-height: 180px; overflow: auto; color: var(--muted); white-space: pre-wrap; }
+@media (max-width: 700px) { #flight { flex-direction: column; } }

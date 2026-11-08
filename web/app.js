@@ -38,6 +38,7 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
   $(tab.dataset.tab).classList.add("active");
   if (tab.dataset.tab === "devicetree" && cy) { cy.resize(); runLayout(); }
   if (tab.dataset.tab === "console") fitTerminal();
+  if (tab.dataset.tab === "flight" && window.onFlightTab) window.onFlightTab();
 }));
 
 // --- boards
@@ -55,7 +56,7 @@ function selectBoard() {
   const board = currentBoard();
   $("boardinfo").textContent = board.soc;
   $("firmware").innerHTML = board.firmware.length
-    ? board.firmware.map((f) => `<option value="${f.id}">${f.title} (${f.seconds} s)</option>`).join("")
+    ? board.firmware.map((f) => `<option value="${f.id}">${f.title}${f.seconds ? ` (${f.seconds} s)` : ""}</option>`).join("")
     : `<option value="">no firmware yet (Devicetree only)</option>`;
   models = {};
   updateButtons();
@@ -89,6 +90,7 @@ function connect() {
     else if (m.type === "model" && m.board === $("board").value) { models[m.path] = m; colorModels(); }
     else if (m.type === "state") showState(m);
     else if (m.type === "progress") showProgress(m);
+    else if (m.type === "flight" || m.type === "flight_status") window.onFlight && window.onFlight(m);
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }
@@ -118,7 +120,8 @@ function showState(m) {
   const el = $("state");
   el.className = `state ${m.state}`;
   if (m.state === "running") {
-    el.textContent = `running ${m.firmware} (${m.virtual_seconds} s virtual${m.real_time ? ", real time" : ""})`;
+    const limit = m.virtual_seconds ? `${m.virtual_seconds} s virtual` : "until Stop";
+    el.textContent = `running ${m.firmware} (${limit}${m.real_time ? ", real time" : ""})`;
     samples = [];
     $("meter").textContent = "";
   }
@@ -128,6 +131,7 @@ function showState(m) {
   }
   else el.textContent = m.state;
   updateButtons(m.state === "running");
+  window.onRunState && window.onRunState(m);
 }
 
 // --- Devicetree graph
