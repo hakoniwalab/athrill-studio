@@ -64,8 +64,37 @@ boards:
   - id: pixhawk4
     title: Holybro Pixhawk 4 (FMUv5)
     soc: STM32F765 (Cortex-M7, 216 MHz)
-    devicetree: work/athrill-device/boards/pixhawk4/pixhawk4.dtb
-    firmware: []
+    athrill: work/athrill3-stm32/athrill3
+    # the board with the Hakoniwa sensor device as the source of the chips' samples
+    devicetree: work/athrill-device/boards/pixhawk4/pixhawk4-hakoniwa.dtb
+    cpu_mhz: 216
+    memory:
+      - ROM, 0x08000000, 2048
+      - RAM, 0x20000000, 512
+    device_config:
+      - DEBUG_FUNC_ENABLE_SKIP_CLOCK 1
+      - DEVICE_CONFIG_STM32_BOOT_ADDR 0x08008000
+      - DISABLE_SYMBOL_UNDERSCORE 1
+      - DEVICE_CONFIG_STM32_CONSOLE_UART 7
+    firmware:
+      # PX4 flies the Hakoniwa Drone x500, whose physics and sensors run inside
+      # Athrill (the in-process sensor device; tools/setup-drone.sh). PX4's own
+      # drivers read the emulated chips; MAVLink on TELEM1 (TCP 5760).
+      - id: px4-x500
+        title: PX4 v1.17.0 flying the Hakoniwa Drone x500 (in process)
+        elf: work/download/px4_fmu-v5_default.elf
+        seconds: 0
+        cwd: work/drone/drone-core
+        copy: [work/drone/seed/fram.bin, work/drone/seed/sd.img]
+        mavlink: tcp:127.0.0.1:5760
+        device_config:
+          - DEVICE_CONFIG_STM32_FRAM_FILE {run}/fram.bin
+          - DEVICE_CONFIG_STM32_SDCARD_IMAGE {run}/sd.img
+          - DEVICE_CONFIG_STM32_UART2_TCP_PORT 5760
+          - HAKO_SENSOR_DEVICE_IRQ 1000
+          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone/lib/libhako_sensor_device_inproc.dylib
+          - HAKO_AIRCRAFT_CONFIG_PATH {root}/work/drone/airframe
+          - HAKO_AIRCRAFT_WORKER 1
   - id: pixhawk6c
     title: Holybro Pixhawk 6C
     soc: STM32H743 (Cortex-M7, 480 MHz)
