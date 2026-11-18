@@ -38,13 +38,24 @@
     </aside>
   </section>
   <section id="flight" class="panel">
-    <div id="view3d"></div>
-    <aside>
-      <h2>Hakoniwa Drone x500</h2>
-      <p class="hint">Board Pixhawk 4, firmware "PX4 ... x500", Run; then take off when PX4 is ready.</p>
-      <div class="buttons"><button id="takeoff" disabled>Take off 2.5 m</button> <button id="land" disabled>Land</button></div>
-      <table id="telemetry"></table>
-      <canvas id="altchart" width="270" height="120"></canvas>
+    <div id="view3d">
+      <div class="hud hud-top">
+        <div><span class="hud-label">Hakoniwa Drone x500</span> · <span id="hud-link">-</span></div>
+        <div>virtual time <b id="hud-time">-</b> · altitude <b id="hud-alt">-</b></div>
+      </div>
+      <div class="hud hud-motors">
+        <div class="hud-label">rotor speed (rpm)</div>
+        <div id="hud-m1" class="motor"><span>1</span><i></i><b>-</b></div>
+        <div id="hud-m2" class="motor"><span>2</span><i></i><b>-</b></div>
+        <div id="hud-m3" class="motor"><span>3</span><i></i><b>-</b></div>
+        <div id="hud-m4" class="motor"><span>4</span><i></i><b>-</b></div>
+      </div>
+      <div id="hud-banner"></div>
+      <div class="hud hud-buttons"><button id="takeoff" disabled>Take off 2.5 m</button> <button id="land" disabled>Land</button></div>
+    </div>
+    <aside id="flightside">
+      <h2>PX4 console <span class="hint">(NSH on the emulated Pixhawk 4)</span></h2>
+      <div id="flightterm"></div>
       <pre id="flightlog"></pre>
     </aside>
   </section>
@@ -52,6 +63,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="/web/app.js"></script>
 <script src="/web/flight.js"></script>
 </body>

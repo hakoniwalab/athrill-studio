@@ -16,6 +16,9 @@ WebSocket /ws, JSON messages:
   {"type": "progress", "clock", "virtual_usec", "wall_usec"}  Athrill's virtual time, every 200 ms of it
   {"type": "flight", "connected", "armed", "mode", "alt", "x", "y", "z", "roll", "pitch", "yaw"}  10 Hz
   {"type": "flight_status", "text"}     PX4's status texts and the ground station's steps
+  {"type": "pose", "samples": [[t_usec, x, y, z, roll, pitch, yaw, rpm[], duty[]], ...]}
+                                        the aircraft's truth from the sensor device's flight trace
+                                        (firmware with flight_trace), about every 10 ms of virtual time
   {"type": "state", "state": "running" | "exited", ...}
 
 Athrill is run unchanged; Studio only reads what it prints. The stream goes
@@ -54,9 +57,59 @@ PROGRESS_MSEC = 200   # how often Athrill reports its virtual time (DEBUG_FUNC_P
 FLUSH_SECONDS = 0.05
 
 
-def athrill_path(board: dict) -> str:
-    """The board's athrill3, or STUDIO_ATHRILL3 for every board (a local build)."""
-    return os.environ.get("STUDIO_ATHRILL3") or str(ROOT / board["athrill"])
+def athrill_path(board: dict, firmware: dict | None = None) -> str:
+    """STUDIO_ATHRILL3 for every board (a local build), else the firmware's athrill3, else the board's."""
+    chosen = (firmware or {}).get("athrill") or board["athrill"]
+    return os.environ.get("STUDIO_ATHRILL3") or str(ROOT / chosen)
+
+
+def devicetree_path(board: dict, firmware: dict | None = None) -> str:
+    """The firmware's own board blob (a variant such as the DShot one), else the board's."""
+    return (firmware or {}).get("devicetree") or board["devicetree"]
+
+
+class FlightTrace:
+    """Follows the sensor device's flight trace (HAKO_SENSOR_DEVICE_FLIGHT_TRACE_PATH):
+        flight time=<usec> pose=<x>,<y>,<z>,<roll>,<pitch>,<yaw> rpm=<r0>,... duty=<d0>,...
+    the aircraft's truth in Hakoniwa's world frame (x north, y west, z up; rad) about every 10 ms of
+    virtual time. New lines go to the browsers in batches of [t_usec, x, y, z, roll, pitch, yaw, rpm[], duty[]]."""
+
+    LINE = re.compile(r"^flight time=(\d+) pose=([^ ]+) rpm=([^ ]*) duty=([^ ]*)$")
+    PERIOD = 0.04
+
+    def __init__(self, path: Path, publish) -> None:
+        self.path = path
+        self.publish = publish
+
+    @staticmethod
+    def parse(line: str) -> list | None:
+        m = FlightTrace.LINE.match(line.strip())
+        if not m:
+            return None
+        floats = lambda text: [float(v) for v in text.split(",") if v]
+        return [int(m.group(1)), *floats(m.group(2)), floats(m.group(3)), floats(m.group(4))]
+
+    async def follow(self) -> None:
+        handle = None
+        partial = ""
+        try:
+            while handle is None:
+                try:
+                    handle = open(self.path, encoding="utf-8")
+                except FileNotFoundError:
+                    await asyncio.sleep(self.PERIOD)
+            while True:
+                chunk = handle.read()
+                if chunk:
+                    partial += chunk
+                    *lines, partial = partial.split("\n")
+                    samples = [s for s in map(self.parse, lines) if s is not None]
+                    if samples:
+                        await self.publish({"type": "pose", "samples": samples})
+                await asyncio.sleep(self.PERIOD)
+        finally:
+            if handle is not None:
+                handle.close()
 
 
 def load_boards() -> list[dict]:
@@ -89,6 +142,7 @@ class Run:
         self.info: dict = {"state": "idle"}
         self.models: dict[str, dict] = {}   # the models of the last run, for browsers that join later
         self.flight: Flight | None = None
+        self.trace_task: asyncio.Task | None = None
 
     async def start(self, board: dict, firmware: dict, real_time: bool = False) -> None:
         await self.stop()
@@ -105,14 +159,18 @@ class Run:
         # shows the wall time only.
         config = [f"DEVICE_CPU_FREQ {board['cpu_mhz']}", *board["device_config"],
                   *firmware.get("device_config", []),
-                  f"DEVICE_CONFIG_DEVICE_TREE {ROOT / board['devicetree']}",
+                  f"DEVICE_CONFIG_DEVICE_TREE {ROOT / devicetree_path(board, firmware)}",
                   f"DEBUG_FUNC_PROGRESS_MSEC {PROGRESS_MSEC}"]
         if real_time:
             config.append("DEBUG_FUNC_REAL_TIME 1")
+        trace = work / "flight.txt"
+        if firmware.get("flight_trace"):
+            trace.unlink(missing_ok=True)
+            config.append(f"HAKO_SENSOR_DEVICE_FLIGHT_TRACE_PATH {trace}")
         (work / "device_config.txt").write_text("\n".join(expand(line) for line in config) + "\n")
         seconds = int(firmware.get("seconds", 10))
         clocks = board["cpu_mhz"] * 1_000_000 * seconds if seconds > 0 else -1
-        command = [athrill_path(board), "-c1", "-m", str(work / "memory.txt"), "-d", str(work / "device_config.txt"),
+        command = [athrill_path(board, firmware), "-c1", "-m", str(work / "memory.txt"), "-d", str(work / "device_config.txt"),
                    "-t", str(clocks), str(ROOT / firmware["elf"])]
         cwd = ROOT / firmware["cwd"] if "cwd" in firmware else work
         self.process = await asyncio.create_subprocess_exec(
@@ -120,11 +178,14 @@ class Run:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.info = {"state": "running", "board": board["id"], "firmware": firmware["id"],
                      "virtual_seconds": seconds or None, "real_time": real_time,
-                     "flight": "mavlink" in firmware, "started": time.time()}
+                     "flight": "mavlink" in firmware, "flight_trace": bool(firmware.get("flight_trace")),
+                     "started": time.time()}
         await self.hub.publish({"type": "state", **self.info})
         self.tasks = [asyncio.create_task(self.read_stdout()),
                       asyncio.create_task(self.read_stderr()),
                       asyncio.create_task(self.wait())]
+        if firmware.get("flight_trace"):
+            self.trace_task = asyncio.create_task(FlightTrace(trace, self.hub.publish).follow())
         if "mavlink" in firmware:
             loop = asyncio.get_running_loop()
             publish = lambda message: loop.call_soon_threadsafe(
@@ -146,6 +207,10 @@ class Run:
             if task is not asyncio.current_task():
                 await asyncio.gather(task, return_exceptions=True)
         self.tasks = []
+        if self.trace_task is not None:
+            self.trace_task.cancel()
+            await asyncio.gather(self.trace_task, return_exceptions=True)
+            self.trace_task = None
 
     async def model(self, m: re.Match) -> None:
         message = {"type": "model", "board": self.info.get("board"), "path": m.group(1),
@@ -245,7 +310,7 @@ def make_app() -> web.Application:
         firmware = next((f for f in board.get("firmware", []) if f["id"] == body.get("firmware")), None)
         if firmware is None:
             raise web.HTTPBadRequest(text="no such firmware on this board")
-        for need in (athrill_path(board), firmware["elf"], board["devicetree"]):
+        for need in (athrill_path(board, firmware), firmware["elf"], devicetree_path(board, firmware)):
             if not (ROOT / need).exists():
                 raise web.HTTPBadRequest(text=f"{need} not found: run tools/fetch.sh")
         await run.start(board, firmware, bool(body.get("real_time")))

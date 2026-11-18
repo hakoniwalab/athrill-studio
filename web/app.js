@@ -85,7 +85,8 @@ function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = (event) => {
     const m = JSON.parse(event.data);
-    if (m.type === "console") term.write(m.data);
+    if (m.type === "console") { term.write(m.data); window.onConsole && window.onConsole(m.data); }
+    else if (m.type === "pose") window.onPose && window.onPose(m);
     else if (m.type === "athrill") addLog(m.line);
     else if (m.type === "model" && m.board === $("board").value) { models[m.path] = m; colorModels(); }
     else if (m.type === "state") showState(m);
