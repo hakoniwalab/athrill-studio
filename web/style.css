@@ -48,12 +48,31 @@ aside h2 { font-size: 15px; margin: 0 0 8px; }
 .meter { font-variant-numeric: tabular-nums; color: var(--muted); }
 .meter b { color: var(--ink); }
 #flight { flex-direction: row; }
-#view3d { flex: 1; min-width: 0; position: relative; }
-.hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
-.buttons { margin-bottom: 10px; }
-#telemetry { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
-#telemetry td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
-#telemetry td:last-child { text-align: right; }
-#altchart { width: 100%; border: 1px solid var(--line); border-radius: 4px; }
-#flightlog { font-size: 11px; max-height: 180px; overflow: auto; color: var(--muted); white-space: pre-wrap; }
-@media (max-width: 700px) { #flight { flex-direction: column; } }
+#view3d { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+#view3d canvas { display: block; }
+.hint { color: var(--muted); font-size: 12px; font-weight: 400; }
+#flightside { width: 44%; min-width: 320px; display: flex; flex-direction: column; background: #0f1318; color: #d6dde5;
+              border-left: 1px solid var(--line); }
+#flightside h2 { color: #d6dde5; }
+#flightterm { flex: 1; min-height: 0; }
+#flightlog { font-size: 11px; height: 72px; flex: none; overflow: auto; color: #8b96a3; white-space: pre-wrap; margin: 6px 0 0; }
+.hud { position: absolute; color: #fff; font: 13px/1.5 system-ui, sans-serif; font-variant-numeric: tabular-nums;
+       background: rgba(10, 14, 20, 0.55); border-radius: 8px; padding: 8px 12px; pointer-events: none;
+       backdrop-filter: blur(4px); }
+.hud b { font-weight: 600; }
+.hud-label { color: #aab6c3; }
+.hud-top { left: 12px; top: 12px; }
+.hud-motors { left: 12px; bottom: 12px; width: 220px; }
+.hud-motors .motor { display: grid; grid-template-columns: 14px 1fr 46px; align-items: center; gap: 8px; height: 20px; }
+.hud-motors .motor i { display: block; height: 8px; border-radius: 4px; background: #3fb950; width: 0;
+                       transition: width 0.1s linear, background 0.2s; }
+.hud-motors .motor b { text-align: right; }
+.hud-motors .motor.stopped i { background: #f85149; }
+.hud-motors .motor.stopped b, .hud-motors .motor.stopped span { color: #ff7b72; }
+.hud-buttons { right: 12px; top: 12px; pointer-events: auto; background: transparent; backdrop-filter: none; padding: 0; }
+#hud-banner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 10px 18px; border-radius: 8px;
+              font: 600 18px/1.3 system-ui, sans-serif; color: #fff; background: rgba(10, 14, 20, 0.7);
+              opacity: 0; transition: opacity 0.4s; pointer-events: none; white-space: nowrap; }
+#hud-banner.show { opacity: 1; }
+#hud-banner.alarm { background: rgba(200, 30, 40, 0.88); }
+@media (max-width: 700px) { #flight { flex-direction: column; } #flightside { width: auto; height: 40%; } }

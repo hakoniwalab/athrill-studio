@@ -95,6 +95,47 @@ boards:
           - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone/lib/libhako_sensor_device_inproc.dylib
           - HAKO_AIRCRAFT_CONFIG_PATH {root}/work/drone/airframe
           - HAKO_AIRCRAFT_WORKER 1
+      # The same flight with DShot600 ESCs and the sensor device's motor-status
+      # build (tools/setup-drone-motor.sh): its flight trace gives the Flight tab
+      # the aircraft's truth pose and rotor speeds about every 10 ms of virtual time.
+      - id: px4-x500-dshot
+        title: PX4 v1.17.0 flying the x500 (in process, DShot ESCs)
+        athrill: work/drone-motor/athrill3
+        devicetree: work/drone-motor/athrill-device/boards/pixhawk4/pixhawk4-hakoniwa-dshot.dtb
+        elf: work/download/px4_fmu-v5_default.elf
+        seconds: 0
+        cwd: work/drone-motor/drone-core
+        copy: [work/drone-motor/seed-dshot/fram.bin, work/drone-motor/seed-dshot/sd.img]
+        mavlink: tcp:127.0.0.1:5760
+        flight_trace: true
+        device_config: &motor_device_config
+          - DEVICE_CONFIG_STM32_BOARD fmu-v5
+          - DEVICE_CONFIG_STM32_FRAM_FILE {run}/fram.bin
+          - DEVICE_CONFIG_STM32_SDCARD_IMAGE {run}/sd.img
+          - DEVICE_CONFIG_STM32_UART2_TCP_PORT 5760
+          - HAKO_SENSOR_DEVICE_IRQ 1000
+          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone-motor/lib/libhako_sensor_device_inproc_motor.dylib
+          - HAKO_AIRCRAFT_CONFIG_PATH {root}/work/drone-motor/drone-core/config/drone/x500-athrill-px4
+          - HAKO_AIRCRAFT_WORKER 1
+          - DEVICE_CONFIG_STM32_JIT 1
+          - DEVICE_CONFIG_DEVICE_TICK_SKIP 1
+      # The motor-failure demo: Studio takes off to 2.5 m as soon as PX4 is
+      # ready, and the emulated ESC of motor 3 stops its motor at 40 s of virtual
+      # time. PX4 detects it from the ESC telemetry and the x500 comes down.
+      - id: px4-x500-motor-stop
+        title: PX4 v1.17.0 x500, motor 3 stops at 40 s (DShot ESC fault)
+        athrill: work/drone-motor/athrill3
+        devicetree: work/drone-motor/athrill-device/boards/pixhawk4/pixhawk4-hakoniwa-dshot.dtb
+        elf: work/download/px4_fmu-v5_default.elf
+        seconds: 0
+        cwd: work/drone-motor/drone-core
+        copy: [work/drone-motor/seed-dshot/fram.bin, work/drone-motor/seed-dshot/sd.img]
+        mavlink: tcp:127.0.0.1:5760
+        flight_trace: true
+        auto_takeoff: 2.5
+        device_config:
+          - *motor_device_config
+          - DEVICE_CONFIG_ESC_MOTOR_STOP 2@40000
   - id: pixhawk6c
     title: Holybro Pixhawk 6C
     soc: STM32H743 (Cortex-M7, 480 MHz)

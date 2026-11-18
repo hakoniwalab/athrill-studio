@@ -1,0 +1,21 @@
+{
+  "board": "pixhawk4",
+  "fps": 30,
+  "segments": [
+    {"from": 33.0, "to": 39.9, "speed": 1.0},
+    {"from": 39.9, "to": 41.7, "speed": 0.3},
+    {"from": 41.7, "to": 44.0, "speed": 1.0}
+  ],
+  "captions": [
+    {"from": 33.0, "to": 39.9, "text": "Unmodified PX4 v1.17.0 on an emulated Pixhawk 4, flying the x500 in MuJoCo"},
+    {"from": 39.9, "to": 40.6, "text": "Motor 3 stops: a fault injected in the emulated DShot ESC"},
+    {"from": 40.6, "to": 42.4, "text": "PX4 detects it from the ESC telemetry, with its own drivers"}
+  ],
+  "camera": {"azimuth": 0.55, "elevation": 0.16, "distance": 2.5, "orbit": 0.035},
+  "card": {
+    "seconds": 3.5,
+    "fade": 0.6,
+    "title": "Validate before the real world.",
+    "lines": ["Athrill: unmodified firmware on an emulated MCU, with Hakoniwa physics", "Hakoniwa Lab"]
+  }
+}
