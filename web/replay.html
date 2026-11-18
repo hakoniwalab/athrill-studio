@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Athrill Studio replay</title>
+<!--
+  The Flight tab at a fixed 1920x1080, drawn picture by picture from a recorded run (GET /api/record/<board>):
+  tools/render-video.py calls replay.load() and replay.renderAt(t, dt), sets the caption and the card, and
+  captures each picture. Light colours whatever the system theme, so that every video looks the same.
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<link rel="stylesheet" href="/web/style.css">
+<style>
+  html, body { width: 1920px; height: 1080px; margin: 0; overflow: hidden; background: #0f1318; }
+  #flight { display: flex; position: absolute; inset: 0; border: 0; border-radius: 0; }
+  #view3d { flex: none; width: 1160px; height: 1080px; }
+  #flightside { width: 760px; min-width: 0; padding: 28px 24px 20px; border-left: 0; }
+  #flightside h2 { font: 600 22px/1.3 system-ui, sans-serif; margin: 0 0 14px; }
+  #flightside h2 .hint { font-size: 16px; color: #8b96a3; }
+  #flightlog, .hud-buttons { display: none; }
+  .hud { font-size: 20px; padding: 12px 18px; border-radius: 12px; }
+  .hud-top { left: 24px; top: 24px; }
+  .hud-motors { left: auto; right: 24px; top: 24px; bottom: auto; width: 330px; }
+  .hud-motors .motor { grid-template-columns: 20px 1fr 70px; height: 30px; gap: 12px; }
+  .hud-motors .motor i { height: 12px; border-radius: 6px; }
+  #hud-banner { font-size: 30px; padding: 16px 28px; border-radius: 12px; top: 14%; }
+  #caption { position: absolute; left: 580px; transform: translateX(-50%); bottom: 64px; max-width: 1060px;
+             padding: 14px 26px; border-radius: 12px; background: rgba(10, 14, 20, 0.72); color: #fff;
+             font: 500 30px/1.35 system-ui, sans-serif; text-align: center; opacity: 0; transition: none; }
+  #caption.show { opacity: 1; }
+  #card { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+          background: #0f1318; color: #fff; opacity: 0; font-family: system-ui, sans-serif; }
+  #card h1 { font-size: 72px; font-weight: 700; margin: 0 0 22px; letter-spacing: 0.01em; }
+  #card p { font-size: 32px; color: #aab6c3; margin: 6px 0; }
+</style>
+<script>window.STUDIO_REPLAY = { fontSize: 15 };</script>
+</head>
+<body>
+<section id="flight" class="panel active">
+  <div id="view3d">
+    <div class="hud hud-top">
+      <div><span class="hud-label">PX4 v1.17.0 · emulated Pixhawk 4</span> <span id="hud-link"></span></div>
+      <div>virtual time <b id="hud-time">-</b> · altitude <b id="hud-alt">-</b></div>
+    </div>
+    <div class="hud hud-motors">
+      <div class="hud-label">rotor speed (rpm)</div>
+      <div id="hud-m1" class="motor"><span>1</span><i></i><b>-</b></div>
+      <div id="hud-m2" class="motor"><span>2</span><i></i><b>-</b></div>
+      <div id="hud-m3" class="motor"><span>3</span><i></i><b>-</b></div>
+      <div id="hud-m4" class="motor"><span>4</span><i></i><b>-</b></div>
+    </div>
+    <div id="hud-banner"></div>
+    <div id="caption"></div>
+    <div class="hud hud-buttons"><button id="takeoff" disabled></button><button id="land" disabled></button></div>
+  </div>
+  <aside id="flightside">
+    <h2>PX4 console <span class="hint">NSH on the emulated STM32F765</span></h2>
+    <div id="flightterm"></div>
+    <pre id="flightlog"></pre>
+  </aside>
+  <div id="card"><h1 id="card-title"></h1><p id="card-line1"></p><p id="card-line2"></p></div>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="/web/flight.js"></script>
+<script>
+  // what tools/render-video.py drives besides replay.renderAt()
+  window.overlay = {
+    caption(text) {
+      const el = document.getElementById("caption");
+      el.textContent = text || "";
+      el.className = text ? "show" : "";
+    },
+    card(opacity, title, line1, line2) {
+      document.getElementById("card").style.opacity = opacity;
+      document.getElementById("card-title").textContent = title || "";
+      document.getElementById("card-line1").textContent = line1 || "";
+      document.getElementById("card-line2").textContent = line2 || "";
+    },
+  };
+</script>
+</body>
+</html>

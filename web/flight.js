@@ -204,10 +204,16 @@
           r.blades.add(p);
         });
         makeShadowy(drone);
+        window.studioModelsLoaded = "x500";
       })
-      .catch((e) => { console.warn("x500 models not loaded, using a simple model", e); fallbackModel(); });
+      .catch((e) => {
+        console.warn("x500 models not loaded, using a simple model", e);
+        fallbackModel();
+        window.studioModelsLoaded = "fallback";
+      });
   } else {
     fallbackModel();
+    window.studioModelsLoaded = "fallback";
   }
 
   // ---------------------------------------------------------------- camera: a chase view that follows smoothly
@@ -290,11 +296,8 @@
   // for checks from the browser's console: the play head and the data's arrival
   window.studioFlight = { samples, get playT() { return playT; }, get rate() { return rate; } };
 
-  let lastFrame = performance.now();
-  function frame(now) {
-    const dt = Math.min(0.1, (now - lastFrame) / 1000);
-    lastFrame = now;
-    const t = advancePlayHead(dt);
+  // one picture: the vehicle at virtual time t (null: as it was), rotors and camera advanced by dt seconds
+  function drawFrame(t, dt) {
     const s = t === null ? null : sampleAt(t);
     if (s) {
       drone.position.copy(s.p);
@@ -310,21 +313,77 @@
     });
     updateCamera(dt);
     renderer.render(scene, camera);
+  }
+
+  const REPLAY = Boolean(window.STUDIO_REPLAY);   // web/replay.html: pictures on request, no live loop
+  let lastFrame = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    drawFrame(advancePlayHead(dt), dt);
     requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
+  if (!REPLAY) requestAnimationFrame(frame);
 
   // ---------------------------------------------------------------- PX4's console beside the view
-  const fterm = new Terminal({ convertEol: true, fontSize: 13, scrollback: 3000,
+  const TERM_FONT = (window.STUDIO_REPLAY && window.STUDIO_REPLAY.fontSize) || 13;
+  const fterm = new Terminal({ convertEol: true, fontSize: TERM_FONT, scrollback: 3000,
     theme: { background: "#0f1318", foreground: "#d6dde5" } });
   fterm.open($("flightterm"));
   function fitFlightTerminal() {
     const box = $("flightterm").getBoundingClientRect();
     if (box.width === 0) return;
-    fterm.resize(Math.max(30, Math.floor(box.width / 7.8)), Math.max(8, Math.floor(box.height / 17)));
+    fterm.resize(Math.max(30, Math.floor(box.width / (TERM_FONT * 0.6))),
+      Math.max(8, Math.floor(box.height / (TERM_FONT * 1.31))));
   }
   window.onConsole = (data) => fterm.write(data);
   window.onFlightTab = resize;
+
+  // ---------------------------------------------------------------- the replay of a recorded run
+  // replay.load(record) takes /api/record/<board>; replay.renderAt(t, dt) draws virtual time t: the console as
+  // far as t, PX4's last status text for a few seconds after it came, rotors and camera advanced by dt.
+  if (REPLAY) {
+    let events = [];
+    let written = 0;
+    const writeAsync = (data) => new Promise((resolve) => fterm.write(data, resolve));
+    window.replay = {
+      view,
+      load(record) {
+        samples.length = 0;
+        for (const [tUsec, x, y, z, roll, pitch, yaw, rpm, duty] of record.trace) {
+          samples.push({ t: tUsec / 1e6, p: rosToThree(x, y, z), q: rosRpyToQuaternion(roll, pitch, yaw), rpm, duty });
+        }
+        events = record.timeline.slice().sort((a, b) => a.t - b.t);
+        written = 0;
+        fterm.reset();
+        resize();
+        camInit = false;
+        return { first: samples[0]?.t, last: samples[samples.length - 1]?.t, events: events.length };
+      },
+      async renderAt(t, dt) {
+        let text = "";
+        while (written < events.length && events[written].t <= t) {
+          if (events[written].type === "console") text += events[written].data;
+          written += 1;
+        }
+        if (text) await writeAsync(text);
+        const status = events.filter((e) => e.type === "flight_status" && e.text.startsWith("PX4: ") && e.t <= t
+          && !/^PX4: (t\s*|\[logger\].*)$/.test(e.text)).pop();
+        const el = $("hud-banner");
+        if (status) {
+          const message = status.text.slice(5).replace(/^Preflight Fail: /, "").trim();
+          const alarm = /fail|failure|emergency|lost/i.test(message);
+          const shown = t - status.t < (alarm ? 6 : 3);
+          el.textContent = `PX4: ${message}`;
+          el.className = (alarm ? "alarm" : "") + (shown ? " show" : "");
+        } else {
+          el.className = "";
+        }
+        drawFrame(t, dt);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      },
+    };
+  }
 
   // ---------------------------------------------------------------- messages
   function log(text) {

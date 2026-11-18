@@ -106,6 +106,18 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   and PX4's first-boot images (athrill-target-stm32 `examples/px4-hakoniwa`):
   `tools/setup-drone.sh <inproc library dir> <hakoniwa-drone-core> <airframe dir> <seed dir>`.
   `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API.
+- **Flight with rotor status, and the motor-failure demo**: with the sensor device's motor-status build
+  (athrill-device `HAKO_SENSOR_DEVICE_BUILD_INPROC_MOTOR=ON`), "PX4 ... x500 (in process, DShot ESCs)" flies the x500
+  on DShot600 ESCs, and "PX4 ... x500, motor 3 stops at 40 s" takes off by itself and stops motor 3 in its emulated
+  ESC: PX4 reports "Motor failure detected" from the ESC telemetry and the x500 comes down. The Flight tab draws the
+  x500 of hakoniwa-threejs-drone from the device's flight trace (the aircraft's truth about every 10 ms of virtual
+  time), interpolated, beside PX4's console. One-time setup:
+  `tools/setup-drone-motor.sh <athrill3> <athrill-device> <inproc build dir> <drone-core> <DShot seed dir>`.
+- **Video of a recorded flight**: a run with the flight trace leaves `work/run/<board>/flight.txt` and
+  `timeline.jsonl` (the console and PX4's status texts on virtual time). `python3 tools/render-video.py
+  tools/videos/motor-stop.json out.mp4` draws it frame by frame in headless Chrome (`web/replay.html`, 1920x1080) with
+  the script's segments (slow motion), captions and closing card, and encodes it with ffmpeg. Every frame is the
+  recorded flight at its exact virtual time, whatever the speed of the machine.
 - **Devicetree**: the board's DTB as a graph. Nodes are the enabled nodes with a `compatible`. The grey lines are the
   bus tree, and the dashed ones are references: interrupt, DMA, clock, reset, GPIO, pin control. Blue nodes are the ones
   Athrill built a model for in the last run. Click a node for its compatible, registers, model and references.

@@ -17,6 +17,8 @@ from typing import Callable
 from pymavlink import mavutil
 
 TELEMETRY_HZ = 10
+# SYS_STATUS: PX4 sets this health bit (not the present one) when arming would be accepted in the current mode
+PREARM_CHECK = mavutil.mavlink.MAV_SYS_STATUS_PREARM_CHECK
 
 
 class Flight:
@@ -28,6 +30,7 @@ class Flight:
         self.thread = threading.Thread(target=self.run, name="mavlink", daemon=True)
         self.state: dict = {"type": "flight", "connected": False, "armed": False}
         self.home_alt: float | None = None
+        self.prearm_ok: bool | None = None   # None: no SYS_STATUS yet
 
     def start(self) -> None:
         self.thread.start()
@@ -92,6 +95,8 @@ class Flight:
         elif kind == "ATTITUDE":
             self.state.update(roll=math.degrees(msg.roll), pitch=math.degrees(msg.pitch),
                               yaw=math.degrees(msg.yaw))
+        elif kind == "SYS_STATUS":
+            self.prearm_ok = bool(msg.onboard_control_sensors_health & PREARM_CHECK)
         elif kind == "HOME_POSITION":
             self.home_alt = msg.altitude / 1000.0
             self.state["ready"] = True
@@ -126,6 +131,15 @@ class Flight:
             if self.home_alt is None:
                 self.status("take-off: no home position")
                 return
+        # arm when PX4's pre-arm checks pass, rather than asking again and again before (each refusal is a
+        # warning on PX4's console)
+        if not self.prearm_ok:
+            self.status("take-off: waiting for PX4's pre-arm checks")
+            end = time.time() + 120
+            while not self.prearm_ok and time.time() < end:
+                msg = link.recv_match(blocking=True, timeout=1)
+                if msg is not None:
+                    self.handle(msg)
         for _ in range(20):
             link.mav.command_long_send(link.target_system, link.target_component,
                                        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 0, 0, 0, 0, 0, 0)

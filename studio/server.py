@@ -9,6 +9,8 @@ REST
                   real_time keeps virtual time from running ahead of the wall clock
   POST /api/stop                        stop the run
   POST /api/flight/takeoff {"altitude"} | /api/flight/land   for a firmware with a MAVLink link
+  GET  /api/record/{id}                 the board's last flight as recorded (flight trace, timeline), for
+                                        web/replay.html and tools/render-video.py
 WebSocket /ws, JSON messages:
   {"type": "console", "data": "..."}    the firmware's console output, as written
   {"type": "athrill", "line": "..."}    Athrill's own lines (start-up, end state)
@@ -151,6 +153,35 @@ class Run:
         self.models: dict[str, dict] = {}   # the models of the last run, for browsers that join later
         self.flight: Flight | None = None
         self.trace_task: asyncio.Task | None = None
+        # the run's timeline (work/run/<board>/timeline.jsonl): the console and PX4's status texts on the
+        # virtual time, estimated from the newest flight-trace sample or progress report, for the replay
+        self.timeline = None
+        self.clock = {"v": 0.0, "wall": None, "rate": 1.0}
+
+    def note_virtual(self, seconds: float) -> None:
+        now = time.monotonic()
+        c = self.clock
+        if c["wall"] is not None and now - c["wall"] > 0.05 and seconds > c["v"]:
+            observed = (seconds - c["v"]) / (now - c["wall"])
+            c["rate"] += (observed - c["rate"]) * 0.3
+        if c["wall"] is None or seconds >= c["v"]:
+            c["v"], c["wall"] = seconds, now
+
+    def virtual_now(self) -> float:
+        c = self.clock
+        return c["v"] if c["wall"] is None else c["v"] + (time.monotonic() - c["wall"]) * c["rate"]
+
+    async def emit(self, message: dict) -> None:
+        """Publishes a message; the console and the status texts also go to the timeline."""
+        if self.timeline is not None and message.get("type") in ("console", "flight_status"):
+            self.timeline.write(json.dumps({"t": round(self.virtual_now(), 4), **message}) + "\n")
+            self.timeline.flush()
+        await self.hub.publish(message)
+
+    async def emit_pose(self, message: dict) -> None:
+        if message.get("samples"):
+            self.note_virtual(message["samples"][-1][0] / 1e6)
+        await self.hub.publish(message)
 
     async def start(self, board: dict, firmware: dict, real_time: bool = False) -> None:
         await self.stop()
@@ -176,6 +207,8 @@ class Run:
             trace.unlink(missing_ok=True)
             config.append(f"HAKO_SENSOR_DEVICE_FLIGHT_TRACE_PATH {trace}")
         (work / "device_config.txt").write_text("\n".join(expand(line) for line in config) + "\n")
+        self.clock = {"v": 0.0, "wall": None, "rate": 1.0}
+        self.timeline = open(work / "timeline.jsonl", "w", encoding="utf-8")
         seconds = int(firmware.get("seconds", 10))
         clocks = board["cpu_mhz"] * 1_000_000 * seconds if seconds > 0 else -1
         command = [athrill_path(board, firmware), "-c1", "-m", str(work / "memory.txt"), "-d", str(work / "device_config.txt"),
@@ -193,11 +226,11 @@ class Run:
                       asyncio.create_task(self.read_stderr()),
                       asyncio.create_task(self.wait())]
         if firmware.get("flight_trace"):
-            self.trace_task = asyncio.create_task(FlightTrace(trace, self.hub.publish).follow())
+            self.trace_task = asyncio.create_task(FlightTrace(trace, self.emit_pose).follow())
         if "mavlink" in firmware:
             loop = asyncio.get_running_loop()
             publish = lambda message: loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(self.hub.publish(message)))
+                lambda: asyncio.ensure_future(self.emit(message)))
             self.flight = Flight(firmware["mavlink"], publish)
             self.flight.start()
             if "auto_takeoff" in firmware:
@@ -222,6 +255,9 @@ class Run:
             self.trace_task.cancel()
             await asyncio.gather(self.trace_task, return_exceptions=True)
             self.trace_task = None
+        if self.timeline is not None:
+            self.timeline.close()
+            self.timeline = None
 
     async def model(self, m: re.Match) -> None:
         message = {"type": "model", "board": self.info.get("board"), "path": m.group(1),
@@ -239,7 +275,7 @@ class Run:
             else:
                 await self.hub.publish({"type": "athrill", "line": stripped})
         else:
-            await self.hub.publish({"type": "console", "data": text})
+            await self.emit({"type": "console", "data": text})
 
     async def read_stdout(self) -> None:
         """Lines go one by one; a partial line (a prompt, an escape sequence)
@@ -251,7 +287,7 @@ class Run:
                 chunk = await asyncio.wait_for(self.process.stdout.read(4096), FLUSH_SECONDS)
             except asyncio.TimeoutError:
                 if buffer:
-                    await self.hub.publish({"type": "console", "data": buffer})
+                    await self.emit({"type": "console", "data": buffer})
                     buffer = ""
                 continue
             if not chunk:
@@ -273,6 +309,8 @@ class Run:
                 await self.model(m)
             elif p:
                 virtual_usec, wall_usec = int(p.group(2)), int(p.group(3))
+                if self.trace_task is None:
+                    self.note_virtual(virtual_usec / 1e6)
                 await self.hub.publish({"type": "progress", "clock": int(p.group(1)),
                                         "virtual_usec": virtual_usec, "wall_usec": wall_usec})
             else:
@@ -344,6 +382,19 @@ def make_app() -> web.Application:
             raise web.HTTPNotFound(text="takeoff or land")
         return web.json_response({"queued": name})
 
+    async def record(request: web.Request) -> web.Response:
+        """The last run of a board as recorded: its flight trace and its timeline, for the replay."""
+        work = ROOT / "work" / "run" / request.match_info["id"]
+        if request.match_info["id"] not in boards or not (work / "flight.txt").exists():
+            raise web.HTTPNotFound(text="no recorded flight for this board")
+        with open(work / "flight.txt", encoding="utf-8") as f:
+            trace = [s for s in map(FlightTrace.parse, f) if s is not None]
+        timeline = []
+        if (work / "timeline.jsonl").exists():
+            with open(work / "timeline.jsonl", encoding="utf-8") as f:
+                timeline = [json.loads(line) for line in f if line.strip()]
+        return web.json_response({"trace": trace, "timeline": timeline})
+
     async def status(_request: web.Request) -> web.Response:
         return web.json_response(run.info)
 
@@ -372,6 +423,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/run", start)
     app.router.add_post("/api/stop", stop)
     app.router.add_get("/api/status", status)
+    app.router.add_get("/api/record/{id}", record)
     app.router.add_post("/api/flight/{command}", flight_command)
     app.router.add_get("/ws", websocket)
     app.on_shutdown.append(on_shutdown)
