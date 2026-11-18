@@ -119,6 +119,23 @@ boards:
           - HAKO_AIRCRAFT_WORKER 1
           - DEVICE_CONFIG_STM32_JIT 1
           - DEVICE_CONFIG_DEVICE_TICK_SKIP 1
+      # The motor-failure demo: Studio takes off to 2.5 m as soon as PX4 is
+      # ready, and the emulated ESC of motor 3 stops its motor at 40 s of virtual
+      # time. PX4 detects it from the ESC telemetry and the x500 comes down.
+      - id: px4-x500-motor-stop
+        title: PX4 v1.17.0 x500, motor 3 stops at 40 s (DShot ESC fault)
+        athrill: work/drone-motor/athrill3
+        devicetree: work/drone-motor/athrill-device/boards/pixhawk4/pixhawk4-hakoniwa-dshot.dtb
+        elf: work/download/px4_fmu-v5_default.elf
+        seconds: 0
+        cwd: work/drone-motor/drone-core
+        copy: [work/drone-motor/seed-dshot/fram.bin, work/drone-motor/seed-dshot/sd.img]
+        mavlink: tcp:127.0.0.1:5760
+        flight_trace: true
+        auto_takeoff: 2.5
+        device_config:
+          - *motor_device_config
+          - DEVICE_CONFIG_ESC_MOTOR_STOP 2@40000
   - id: pixhawk6c
     title: Holybro Pixhawk 6C
     soc: STM32H743 (Cortex-M7, 480 MHz)

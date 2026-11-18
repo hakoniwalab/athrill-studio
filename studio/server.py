@@ -63,6 +63,14 @@ def athrill_path(board: dict, firmware: dict | None = None) -> str:
     return os.environ.get("STUDIO_ATHRILL3") or str(ROOT / chosen)
 
 
+def flatten(lines: list) -> list[str]:
+    """Configuration lines, with the lists a YAML alias brings in (a shared block of lines) spliced in place."""
+    out: list[str] = []
+    for line in lines:
+        out.extend(flatten(line) if isinstance(line, list) else [line])
+    return out
+
+
 def devicetree_path(board: dict, firmware: dict | None = None) -> str:
     """The firmware's own board blob (a variant such as the DShot one), else the board's."""
     return (firmware or {}).get("devicetree") or board["devicetree"]
@@ -158,7 +166,7 @@ class Run:
         # (toppers/athrill#90); an older one ignores the key, and Studio then
         # shows the wall time only.
         config = [f"DEVICE_CPU_FREQ {board['cpu_mhz']}", *board["device_config"],
-                  *firmware.get("device_config", []),
+                  *flatten(firmware.get("device_config", [])),
                   f"DEVICE_CONFIG_DEVICE_TREE {ROOT / devicetree_path(board, firmware)}",
                   f"DEBUG_FUNC_PROGRESS_MSEC {PROGRESS_MSEC}"]
         if real_time:
@@ -192,6 +200,9 @@ class Run:
                 lambda: asyncio.ensure_future(self.hub.publish(message)))
             self.flight = Flight(firmware["mavlink"], publish)
             self.flight.start()
+            if "auto_takeoff" in firmware:
+                # a scripted run (a demo): take off as soon as PX4 reports its home position
+                self.flight.command("takeoff", altitude=float(firmware["auto_takeoff"]))
 
     async def stop(self) -> None:
         if self.flight is not None:
