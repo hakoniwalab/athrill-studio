@@ -85,7 +85,7 @@ Today Studio starts Zephyr's samples on the emulated **NUCLEO-F767ZI** and **NUC
 the browser, and draws each board's Devicetree as a graph.
 
 ```sh
-tools/fetch.sh                 # the athrill-target-stm32 v0.3.0 release and athrill-device's board DTBs, into work/
+tools/fetch.sh                 # the athrill-target-stm32 release of versions.txt and athrill-device's board DTBs, into work/
 python3 -m pip install aiohttp pyyaml
 python3 -m studio.server       # then open http://127.0.0.1:8765/
 ```
@@ -96,8 +96,7 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
 - **Real time and RTF**: the "Real time" switch keeps virtual time from running ahead of the wall clock
   (`DEBUG_FUNC_REAL_TIME 1`), so `synchronization` greets every 0.5 s of your time. Without it Athrill runs as fast as
   it can. The meter shows the virtual time and the real-time factor from Athrill's progress report
-  (`DEBUG_FUNC_PROGRESS_MSEC`, toppers/athrill#90). Until a release of athrill3 has it, set `STUDIO_ATHRILL3` to a
-  locally built `athrill3`; the release's `athrill3` runs too, without the meter.
+  (`DEBUG_FUNC_PROGRESS_MSEC`, toppers/athrill#90); the athrill3 release of versions.txt has it.
 - **Flight**: on the Pixhawk 4, "PX4 v1.17.0 flying the Hakoniwa Drone x500 (in process)" runs PX4 with its own
   drivers on the emulated chips, whose samples come from the Hakoniwa Drone x500 physics and sensor models running
   inside Athrill (no Hakoniwa runtime, no second process). Studio talks MAVLink to PX4 (TCP 5760): "Take off 2.5 m"
@@ -105,7 +104,8 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   athrill-device (`board/common`, `HAKO_SENSOR_DEVICE_BUILD_INPROC=ON`), a Hakoniwa Drone release, the x500 airframe
   and PX4's first-boot images (athrill-target-stm32 `examples/px4-hakoniwa`):
   `tools/setup-drone.sh <inproc library dir> <hakoniwa-drone-core> <airframe dir> <seed dir>`.
-  `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API.
+  `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API (`--firmware px4-x500-dshot`
+  for the same flight on the DShot ESCs of the next item).
 - **Flight with rotor status, and the motor-failure demo**: with the sensor device's motor-status build
   (athrill-device `HAKO_SENSOR_DEVICE_BUILD_INPROC_MOTOR=ON`), "PX4 ... x500 (in process, DShot ESCs)" flies the x500
   on DShot600 ESCs, and "PX4 ... x500, motor 3 stops at 40 s" takes off by itself and stops motor 3 in its emulated
@@ -113,6 +113,8 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   x500 of hakoniwa-threejs-drone from the device's flight trace (the aircraft's truth about every 10 ms of virtual
   time), interpolated, beside PX4's console. One-time setup:
   `tools/setup-drone-motor.sh <athrill3> <athrill-device> <inproc build dir> <drone-core> <DShot seed dir>`.
+  `python3 tests/motor_stop_smoke.py` runs the motor-failure demo through the API and requires the climb, PX4's
+  report and the descent (`--real-time` as with the switch).
 - **Video of a recorded flight**: a run with the flight trace leaves `work/run/<board>/flight.txt` and
   `timeline.jsonl` (the console and PX4's status texts on virtual time). `python3 tools/render-video.py
   tools/videos/motor-stop.json out.mp4` draws it frame by frame in headless Chrome (`web/replay.html`, 1920x1080) with

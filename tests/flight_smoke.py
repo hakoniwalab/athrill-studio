@@ -1,9 +1,10 @@
 """End-to-end flight through Studio, as the Flight tab does it:
 
-    python3 tests/flight_smoke.py
+    python3 tests/flight_smoke.py [--firmware px4-x500-dshot]
 
 Starts the server, runs PX4 with the in-process x500 on the Pixhawk 4
-(tools/fetch.sh and tools/setup-drone.sh first), waits until PX4 reports its
+(tools/fetch.sh and tools/setup-drone.sh first; for px4-x500-dshot, the DShot
+ESCs, tools/setup-drone-motor.sh), waits until PX4 reports its
 home position over MAVLink, takes off to 2.5 m with POST /api/flight/takeoff,
 and requires the altitude to stay within 2.5 +- 0.3 m for 10 s of PX4's time
 after 20 s; then lands and requires the altitude below 0.3 m and the vehicle
@@ -12,6 +13,7 @@ disarmed. Prints the RTF from Athrill's progress report when the athrill3 has it
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import socket
 import subprocess
@@ -31,7 +33,7 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-async def fly(port: int) -> list[str]:
+async def fly(port: int, firmware: str) -> list[str]:
     base = f"http://127.0.0.1:{port}"
     failures: list[str] = []
     async with aiohttp.ClientSession() as http:
@@ -42,7 +44,7 @@ async def fly(port: int) -> list[str]:
             except aiohttp.ClientConnectionError:
                 await asyncio.sleep(0.1)
         async with http.ws_connect(f"{base}/ws") as ws:
-            async with http.post(f"{base}/api/run", json={"board": "pixhawk4", "firmware": "px4-x500"}) as r:
+            async with http.post(f"{base}/api/run", json={"board": "pixhawk4", "firmware": firmware}) as r:
                 if r.status != 200:
                     return [f"run: HTTP {r.status} {await r.text()}"]
             phase, t_takeoff, hold, rtf = "boot", None, [], None
@@ -87,10 +89,13 @@ async def fly(port: int) -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--firmware", default="px4-x500", help="the Pixhawk 4 firmware of boards.yaml (px4-x500 or px4-x500-dshot)")
+    args = parser.parse_args()
     port = free_port()
     server = subprocess.Popen([sys.executable, "-m", "studio.server", "--port", str(port)], cwd=ROOT)
     try:
-        failures = asyncio.run(fly(port))
+        failures = asyncio.run(fly(port, args.firmware))
     finally:
         server.terminate()
         server.wait(15)
