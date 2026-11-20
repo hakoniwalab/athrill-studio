@@ -9,6 +9,9 @@ REST
                   real_time keeps virtual time from running ahead of the wall clock
   POST /api/stop                        stop the run
   POST /api/flight/takeoff {"altitude"} | /api/flight/land   for a firmware with a MAVLink link
+  POST /api/flight/route {"points": [[north, east], ...] m from home, "altitude", "speed",
+                         "fault": {"motor": n, "at": k}}   fly to each point in turn; stop motor n at point k
+  POST /api/fault {"motor": n, "stop": true|false} | {"scales": [...]}   rotor faults (a firmware with rotor_fault)
   GET  /api/record/{id}                 the board's last flight as recorded (flight trace, timeline), for
                                         web/replay.html and tools/render-video.py
 WebSocket /ws, JSON messages:
@@ -157,6 +160,30 @@ class Run:
         # virtual time, estimated from the newest flight-trace sample or progress report, for the replay
         self.timeline = None
         self.clock = {"v": 0.0, "wall": None, "rate": 1.0}
+        # rotor faults from the browser (a firmware with rotor_fault): the scales the sensor device reads
+        self.fault_path: Path | None = None
+        self.fault_scales: list[float] = []
+
+    async def set_fault(self, scales: list[float]) -> None:
+        """Writes the rotor scales (1 runs, 0 stops a motor) for the sensor device, which reads them every
+        20 ms of virtual time (HAKO_SENSOR_DEVICE_ROTOR_FAULT_FILE)."""
+        if self.fault_path is None:
+            raise web.HTTPConflict(text="this firmware takes no rotor faults")
+        self.fault_scales = [min(1.0, max(0.0, float(v))) for v in scales]
+        tmp = self.fault_path.with_suffix(".tmp")
+        tmp.write_text(" ".join(f"{v:g}" for v in self.fault_scales) + "\n")
+        os.replace(tmp, self.fault_path)
+        stopped = [str(i + 1) for i, v in enumerate(self.fault_scales) if v <= 0.0]
+        text = f"fault: motor {', '.join(stopped)} stopped" if stopped else "fault: all motors restored"
+        await self.emit({"type": "flight_status", "text": text})
+        await self.hub.publish({"type": "fault", "scales": self.fault_scales})
+
+    async def stop_motor(self, motor: int) -> None:
+        """A planned fault of the route: stop one motor (1-based)."""
+        scales = list(self.fault_scales)
+        if 1 <= motor <= len(scales):
+            scales[motor - 1] = 0.0
+            await self.set_fault(scales)
 
     def note_virtual(self, seconds: float) -> None:
         now = time.monotonic()
@@ -202,6 +229,12 @@ class Run:
                   f"DEBUG_FUNC_PROGRESS_MSEC {PROGRESS_MSEC}"]
         if real_time:
             config.append("DEBUG_FUNC_REAL_TIME 1")
+        self.fault_path = None
+        if firmware.get("rotor_fault"):
+            self.fault_path = work / "rotor-fault.txt"
+            self.fault_path.unlink(missing_ok=True)
+            self.fault_scales = [1.0] * int(firmware["rotor_fault"])
+            config.append(f"HAKO_SENSOR_DEVICE_ROTOR_FAULT_FILE {self.fault_path}")
         trace = work / "flight.txt"
         if firmware.get("flight_trace"):
             trace.unlink(missing_ok=True)
@@ -220,6 +253,7 @@ class Run:
         self.info = {"state": "running", "board": board["id"], "firmware": firmware["id"],
                      "virtual_seconds": seconds or None, "real_time": real_time,
                      "flight": "mavlink" in firmware, "flight_trace": bool(firmware.get("flight_trace")),
+                     "rotor_fault": int(firmware.get("rotor_fault", 0)), "route": bool(firmware.get("route")),
                      "started": time.time()}
         await self.hub.publish({"type": "state", **self.info})
         self.tasks = [asyncio.create_task(self.read_stdout()),
@@ -231,7 +265,9 @@ class Run:
             loop = asyncio.get_running_loop()
             publish = lambda message: loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(self.emit(message)))
-            self.flight = Flight(firmware["mavlink"], publish)
+            on_fault = lambda motor: loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self.stop_motor(motor)))
+            self.flight = Flight(firmware["mavlink"], publish, on_fault if firmware.get("rotor_fault") else None)
             self.flight.start()
             if "auto_takeoff" in firmware:
                 # a scripted run (a demo): take off as soon as PX4 reports its home position
@@ -377,10 +413,31 @@ def make_app() -> web.Application:
         if name == "takeoff":
             run.flight.command("takeoff", altitude=float(body.get("altitude", 2.5)))
         elif name == "land":
+            run.flight.command("route_clear")
             run.flight.command("land")
+        elif name == "route":
+            points = body.get("points", [])
+            if not points or not all(isinstance(p, list) and len(p) == 2 for p in points):
+                raise web.HTTPBadRequest(text="points: [[north, east], ...] in m from home")
+            fault = body.get("fault")   # {"motor": n, "at": k}: stop motor n when point k is reached
+            run.flight.command("route", points=points, altitude=float(body.get("altitude", 2.5)),
+                               speed=float(body.get("speed", 2.0)), fault=fault)
         else:
-            raise web.HTTPNotFound(text="takeoff or land")
+            raise web.HTTPNotFound(text="takeoff, land or route")
         return web.json_response({"queued": name})
+
+    async def fault(request: web.Request) -> web.Response:
+        body = await request.json()
+        if "scales" in body:
+            scales = body["scales"]
+        else:   # {"motor": 3, "stop": true}: one motor (1-based)
+            scales = list(run.fault_scales)
+            motor = int(body["motor"]) - 1
+            if not 0 <= motor < len(scales):
+                raise web.HTTPBadRequest(text="no such motor")
+            scales[motor] = 0.0 if body.get("stop", True) else 1.0
+        await run.set_fault(scales)
+        return web.json_response({"scales": run.fault_scales})
 
     async def record(request: web.Request) -> web.Response:
         """The last run of a board as recorded: its flight trace and its timeline, for the replay."""
@@ -425,6 +482,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/status", status)
     app.router.add_get("/api/record/{id}", record)
     app.router.add_post("/api/flight/{command}", flight_command)
+    app.router.add_post("/api/fault", fault)
     app.router.add_get("/ws", websocket)
     app.on_shutdown.append(on_shutdown)
     return app

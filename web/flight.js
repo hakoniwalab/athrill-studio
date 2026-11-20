@@ -284,12 +284,19 @@
   }
 
   let banner = null;
-  function showBanner(text, alarm) {
+  // a message's kind: alarm (red) for failures, warn (orange) for an injected fault, good (green) for steps done
+  function kindOf(text) {
+    if (/fail|failure|emergency|denied|abort/i.test(text)) return "alarm";
+    if (/^fault:|stop motor/i.test(text)) return "warn";
+    if (/^armed$|armed by|takeoff detected|landing detected|accepted|^route: |reached|restored/i.test(text)) return "good";
+    return "";
+  }
+  function showBanner(text, kind) {
     const el = $("hud-banner");
     el.textContent = text;
-    el.className = alarm ? "alarm show" : "show";
+    el.className = `${kind} show`;
     clearTimeout(banner);
-    banner = setTimeout(() => { el.className = alarm ? "alarm" : ""; }, alarm ? 6000 : 3500);
+    banner = setTimeout(() => { el.className = kind; }, kind === "alarm" ? 6000 : 3500);
   }
 
   // ---------------------------------------------------------------- the frame loop
@@ -388,7 +395,10 @@
   // ---------------------------------------------------------------- messages
   function log(text) {
     const box = $("flightlog");
-    box.textContent += text + "\n";
+    const line = document.createElement("span");
+    line.className = kindOf(text);
+    line.textContent = text + "\n";
+    box.appendChild(line);
     box.scrollTop = box.scrollHeight;
   }
 
@@ -405,7 +415,10 @@
       log(m.text);
       if (m.text.startsWith("PX4: ")) {
         const text = m.text.slice(5).replace(/^Preflight Fail: /, "");
-        showBanner(`PX4: ${text}`, /fail|failure|emergency|lost/i.test(text));
+        // ground-station link messages are noise here (the link is local)
+        if (!/ground station lost|GCS connection regained/i.test(text)) showBanner(`PX4: ${text}`, kindOf(text));
+      } else if (kindOf(m.text)) {
+        showBanner(m.text.replace(/^take-off to ([\d.]+) m: accepted$/, "take-off to $1 m"), kindOf(m.text));
       }
       return;
     }
@@ -427,7 +440,7 @@
       samples.length = 0; playT = null; rate = 1; lastArrival = null; traceSeen = false; camInit = false;
       drone.position.set(0, 0, 0); drone.quaternion.identity();
       fterm.reset();
-      $("flightlog").textContent = "";
+      $("flightlog").replaceChildren();
       if (m.flight) log("PX4 is booting; the take-off button opens when PX4 reports its home position.");
     }
     if (!flying) { $("takeoff").disabled = true; $("land").disabled = true; }
@@ -437,4 +450,158 @@
     body: JSON.stringify(body || {}) });
   $("takeoff").addEventListener("click", () => { $("takeoff").disabled = true; post("/api/flight/takeoff", { altitude: 2.5 }); });
   $("land").addEventListener("click", () => post("/api/flight/land"));
+
+  // ---------------------------------------------------------------- the route (firmware with route)
+  // Points are north/east metres from home (PX4's local frame); the map shows them north up, and the 3D
+  // view draws them on the ground with the path between them.
+  const MAP_M = 24;                     // the map's width in metres (home in the middle)
+  const route = { points: [], index: -1, armed: false, faultAt: 0, faultMotor: 3 };
+  window.studioRoute = route;   // for checks from the browser's console
+  const routeGroup = new THREE.Group();
+  scene.add(routeGroup);
+  const neToThree = (north, east, up) => rosToThree(north, -east, up);   // ROS y is west
+  function drawRoute3d() {
+    routeGroup.clear();
+    if (!route.points.length) return;
+    // the path: flat bands 0.15 m wide on the ground (a line of one pixel is lost at a distance)
+    const pts = [[0, 0], ...route.points].map(([n, e]) => neToThree(n, e, 0.03));
+    const band = new THREE.MeshBasicMaterial({ color: 0x2f81f7, transparent: true, opacity: 0.85 });
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], len = a.distanceTo(b);
+      if (len < 0.01) continue;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.004, len), band);   // depth along local z
+      m.position.set((a.x + b.x) / 2, 0.03, (a.z + b.z) / 2);
+      m.lookAt(b.x, 0.03, b.z);
+      routeGroup.add(m);
+    }
+    if (route.faultAt > 0 && route.faultAt <= route.points.length) {
+      const [n, e] = route.points[route.faultAt - 1];
+      const mark = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 40),
+        new THREE.MeshBasicMaterial({ color: 0xf85149, side: THREE.DoubleSide }));
+      mark.rotation.x = -Math.PI / 2;
+      mark.position.copy(neToThree(n, e, 0.045));
+      routeGroup.add(mark);
+    }
+    route.points.forEach(([n, e], i) => {
+      const done = route.index > i;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.4, 32),
+        new THREE.MeshBasicMaterial({ color: done ? 0x3fb950 : (i === route.index ? 0xffc400 : 0x2f81f7),
+          side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(neToThree(n, e, 0.04));
+      routeGroup.add(ring);
+    });
+  }
+  const map = $("routemap");
+  const mapCtx = map.getContext("2d");
+  let mapVehicle = null;                // [north, east] of the vehicle
+  function mapXY(north, east) {
+    const k = map.width / MAP_M;
+    return [map.width / 2 + east * k, map.height / 2 - north * k];
+  }
+  function drawMap() {
+    const c = mapCtx, w = map.width, k = w / MAP_M;
+    c.clearRect(0, 0, w, w);
+    for (let m = -MAP_M / 2; m <= MAP_M / 2; m++) {
+      c.strokeStyle = m % 5 === 0 ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.10)";
+      c.beginPath(); c.moveTo(w / 2 + m * k, 0); c.lineTo(w / 2 + m * k, w); c.stroke();
+      c.beginPath(); c.moveTo(0, w / 2 - m * k); c.lineTo(w, w / 2 - m * k); c.stroke();
+    }
+    c.fillStyle = "#aab6c3"; c.font = "11px system-ui"; c.fillText("N", w / 2 + 4, 12);
+    if (route.points.length) {
+      c.strokeStyle = "#2f81f7"; c.lineWidth = 2; c.beginPath();
+      const [hx, hy] = mapXY(0, 0); c.moveTo(hx, hy);
+      route.points.forEach(([n, e]) => { const [x, y] = mapXY(n, e); c.lineTo(x, y); });
+      c.stroke(); c.lineWidth = 1;
+      route.points.forEach(([n, e], i) => {
+        const [x, y] = mapXY(n, e);
+        c.fillStyle = route.index > i ? "#3fb950" : (i === route.index ? "#ffc400" : "#2f81f7");
+        c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#fff"; c.fillText(String(i + 1), x + 8, y - 6);
+        if (route.faultAt === i + 1) {
+          c.strokeStyle = "#f85149"; c.lineWidth = 2;
+          c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.stroke(); c.lineWidth = 1;
+          c.fillStyle = "#ff7b72"; c.fillText(`M${route.faultMotor} stops`, x + 8, y + 14);
+        }
+      });
+    }
+    const [hx, hy] = mapXY(0, 0);
+    c.strokeStyle = "#ffc400"; c.strokeRect(hx - 5, hy - 5, 10, 10);   // home
+    if (mapVehicle) {
+      const [x, y] = mapXY(mapVehicle[0], mapVehicle[1]);
+      c.fillStyle = "#ff7b72"; c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.fill();
+    }
+  }
+  function updateRouteButtons() {
+    $("flyroute").disabled = !(flying && route.armed && route.points.length);
+    const at = $("faultat");
+    if (at.options.length !== route.points.length + 1) {
+      const keep = Number(at.value);
+      at.innerHTML = '<option value="0">none</option>' +
+        route.points.map((_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+      at.value = keep <= route.points.length ? String(keep) : "0";
+    }
+    route.faultAt = Number(at.value); route.faultMotor = Number($("faultmotor").value);
+  }
+  $("faultat").addEventListener("change", () => { updateRouteButtons(); drawMap(); drawRoute3d(); });
+  $("faultmotor").addEventListener("change", () => { updateRouteButtons(); drawMap(); drawRoute3d(); });
+  map.addEventListener("click", (e) => {
+    const r = map.getBoundingClientRect(), k = map.width / MAP_M;
+    const x = (e.clientX - r.left) * (map.width / r.width), y = (e.clientY - r.top) * (map.height / r.height);
+    const north = Math.round(((map.height / 2 - y) / k) * 2) / 2, east = Math.round(((x - map.width / 2) / k) * 2) / 2;
+    if (route.index >= 0 && route.index < route.points.length) return;   // flying a route: no edits
+    if (route.index >= route.points.length) { route.points = []; route.index = -1; }
+    route.points.push([north, east]);
+    drawMap(); drawRoute3d(); updateRouteButtons();
+  });
+  $("clearroute").addEventListener("click", () => {
+    route.points = []; route.index = -1; drawMap(); drawRoute3d(); updateRouteButtons();
+  });
+  // flying a route: pull the chase camera back and up, gently, so that the path on the ground shows
+  function easeView(target, seconds) {
+    const from = { ...view }, t0 = performance.now();
+    const step = (now) => {
+      const u = Math.min(1, (now - t0) / (seconds * 1000)), k = u * u * (3 - 2 * u);
+      view.distance = from.distance + (target.distance - from.distance) * k;
+      view.elevation = from.elevation + (target.elevation - from.elevation) * k;
+      if (u < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  $("flyroute").addEventListener("click", () => {
+    route.index = 0; drawMap(); drawRoute3d();
+    const fault = route.faultAt > 0 ? { motor: route.faultMotor, at: route.faultAt } : null;
+    post("/api/flight/route", { points: route.points, altitude: 2.5, speed: 2.0, fault });
+    easeView({ distance: Math.max(view.distance, 9), elevation: Math.max(view.elevation, 0.55) }, 2.0);
+  });
+  const onFlightBase = window.onFlight;
+  window.onFlight = (m) => {
+    onFlightBase(m);
+    if (m.type !== "flight") return;
+    route.armed = Boolean(m.armed);
+    if (m.x !== undefined) mapVehicle = [m.x, m.y];
+    if (m.route) { route.index = m.route.index; }
+    updateRouteButtons(); drawMap(); drawRoute3d();
+  };
+
+  // ---------------------------------------------------------------- ESC faults (firmware with rotor_fault)
+  const faultButtons = [...document.querySelectorAll("#faultbox button[data-motor]")];
+  faultButtons.forEach((b) => b.addEventListener("click", () => post("/api/fault", { motor: Number(b.dataset.motor), stop: true })));
+  $("restore").addEventListener("click", () => post("/api/fault", { scales: [1, 1, 1, 1] }));
+  window.onFault = (m) => {
+    faultButtons.forEach((b, i) => b.classList.toggle("on", (m.scales[i] ?? 1) <= 0));
+  };
+
+  const onRunStateBase = window.onRunState;
+  window.onRunState = (m) => {
+    onRunStateBase(m);
+    if (m.state === "running") {
+      $("routebox").hidden = !m.route;
+      $("faultbox").hidden = !m.rotor_fault;
+      route.points = []; route.index = -1; mapVehicle = null;
+      faultButtons.forEach((b) => b.classList.remove("on"));
+      drawMap(); drawRoute3d(); updateRouteButtons();
+    }
+  };
+  drawMap();
 })();

@@ -199,6 +199,17 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   `tools/setup-drone-motor.sh <athrill3> <athrill-device> <inproc build dir> <drone-core> <DShot seed dir>`.
   `python3 tests/motor_stop_smoke.py` runs the motor-failure demo through the API and requires the climb, PX4's
   report and the descent (`--real-time` as with the switch).
+- **Fly a route and stop a motor from the browser**: "PX4 v1.17.0 x500, fly a route and stop a motor from the
+  browser" uses the same setup with the sensor device as the ESC's fault model (`pixhawk4-hakoniwa-dshot-asset.dtb`,
+  and an in-process sensor device with `HAKO_SENSOR_DEVICE_ROTOR_FAULT_FILE`, athrill-device after its rotor-fault
+  file). After **Take off 2.5 m**, click the map (north up, 1 m grid, home in the middle) to set the route's
+  points, optionally plan a fault ("stop motor 3 at point 2"), and press **Fly route**: Studio sends PX4 each point
+  in turn over MAVLink (`MAV_CMD_DO_REPOSITION`, 2 m/s), the path shows on the ground, and the planned motor stops
+  when its point is reached. The **Stop 1-4** buttons stop a motor at any moment, **Restore all** brings them back.
+  Studio writes the rotor scales to `work/run/<board>/rotor-fault.txt`, which the sensor device reads every 20 ms
+  of virtual time; PX4 detects the stop from the ESC telemetry. `python3 tests/route_fault_smoke.py` flies a 6 m
+  square with the fault planned at point 2 (`--manual` stops it through the API instead) and requires the route,
+  PX4's report and the descent.
 - **Video of a recorded flight**: a run with the flight trace leaves `work/run/<board>/flight.txt` and
   `timeline.jsonl` (the console and PX4's status texts on virtual time). `python3 tools/render-video.py
   tools/videos/motor-stop.json out.mp4` draws it frame by frame in headless Chrome (`web/replay.html`, 1920x1080) with

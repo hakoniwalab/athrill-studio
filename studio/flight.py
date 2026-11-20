@@ -19,18 +19,30 @@ from pymavlink import mavutil
 TELEMETRY_HZ = 10
 # SYS_STATUS: PX4 sets this health bit (not the present one) when arming would be accepted in the current mode
 PREARM_CHECK = mavutil.mavlink.MAV_SYS_STATUS_PREARM_CHECK
+EARTH_RADIUS = 6378137.0   # m, for the route's north/east metres to latitude/longitude near home
 
 
 class Flight:
-    def __init__(self, url: str, publish: Callable[[dict], None]) -> None:
+    def __init__(self, url: str, publish: Callable[[dict], None],
+                 on_fault: Callable[[int], None] | None = None) -> None:
         self.url = url
         self.publish = publish
+        self.on_fault = on_fault   # a planned fault: called with the motor (1-based) when its point is reached
         self.commands: queue.Queue[tuple[str, dict]] = queue.Queue()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self.run, name="mavlink", daemon=True)
         self.state: dict = {"type": "flight", "connected": False, "armed": False}
         self.home_alt: float | None = None
+        self.home_lat: float | None = None   # deg, the origin of the route's north/east metres
+        self.home_lon: float | None = None
         self.prearm_ok: bool | None = None   # None: no SYS_STATUS yet
+        # a route being flown: [[north, east], ...] m from home, the index of the point flown to, its altitude
+        self.route: list[list[float]] = []
+        self.route_index = 0
+        self.route_alt = 2.5
+        self.route_speed = 2.0
+        self.route_fault: dict | None = None   # {"motor": n, "at": k}: stop motor n when point k (1-based) is reached
+        self.route_sent = 0.0
 
     def start(self) -> None:
         self.thread.start()
@@ -77,6 +89,7 @@ class Flight:
             msg = link.recv_match(blocking=True, timeout=0.05)
             if msg is not None:
                 self.handle(msg)
+            self.follow_route(now)
             if now - last_publish > 1 / TELEMETRY_HZ:
                 self.publish(dict(self.state))
                 last_publish = now
@@ -99,6 +112,8 @@ class Flight:
             self.prearm_ok = bool(msg.onboard_control_sensors_health & PREARM_CHECK)
         elif kind == "HOME_POSITION":
             self.home_alt = msg.altitude / 1000.0
+            self.home_lat = msg.latitude / 1e7
+            self.home_lon = msg.longitude / 1e7
             self.state["ready"] = True
         elif kind == "STATUSTEXT":
             self.status("PX4: " + msg.text)
@@ -162,3 +177,55 @@ class Flight:
                                    0, 0, 0, 0, float("nan"), float("nan"), float("nan"), 0)
         result = self.wait_ack(mavutil.mavlink.MAV_CMD_NAV_LAND, 5)
         self.status(f"land: {'accepted' if result == 0 else f'result {result}'}")
+
+    # --- a route: go to each point in turn (MAV_CMD_DO_REPOSITION, as QGroundControl's "Go to location")
+    def do_route(self, points: list, altitude: float = 2.5, speed: float = 2.0, fault: dict | None = None) -> None:
+        if self.home_lat is None:
+            self.status("route: no home position yet")
+            return
+        if not self.state.get("armed"):
+            self.status("route: take off first")
+            return
+        self.route = [[float(n), float(e)] for n, e in points]
+        self.route_index = 0
+        self.route_alt = altitude
+        self.route_speed = speed
+        self.route_fault = fault if fault and 1 <= int(fault.get("at", 0)) <= len(self.route) else None
+        self.route_sent = 0.0
+        self.state["route"] = {"points": self.route, "index": 0, "fault": self.route_fault}
+        plan = f"; motor {self.route_fault['motor']} stops at point {self.route_fault['at']}" if self.route_fault else ""
+        self.status(f"route: {len(self.route)} points at {altitude} m, {speed} m/s{plan}")
+
+    def do_route_clear(self) -> None:
+        self.route = []
+        self.state.pop("route", None)
+
+    def follow_route(self, now: float) -> None:
+        """Sends the current point, and the next one once the vehicle is within 0.8 m of it."""
+        if not self.route or self.route_index >= len(self.route):
+            return
+        north, east = self.route[self.route_index]
+        x, y = self.state.get("x"), self.state.get("y")
+        if x is not None and math.hypot(north - x, east - y) < 0.8:
+            self.route_index += 1
+            self.state["route"] = {"points": self.route, "index": self.route_index, "fault": self.route_fault}
+            if self.route_fault and self.route_index == int(self.route_fault["at"]) and self.on_fault:
+                self.status(f"point {self.route_index} reached: stop motor {self.route_fault['motor']}")
+                self.on_fault(int(self.route_fault["motor"]))
+                self.route_fault = None
+            if self.route_index >= len(self.route):
+                self.status("route: done")
+                return
+            self.route_sent = 0.0
+            north, east = self.route[self.route_index]
+        if now - self.route_sent < 2.0:   # (re)send every 2 s until reached
+            return
+        lat = self.home_lat + math.degrees(north / EARTH_RADIUS)
+        lon = self.home_lon + math.degrees(east / (EARTH_RADIUS * math.cos(math.radians(self.home_lat))))
+        link = self.link
+        link.mav.command_int_send(link.target_system, link.target_component, mavutil.mavlink.MAV_FRAME_GLOBAL,
+                                  mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                                  self.route_speed, mavutil.mavlink.MAV_DO_REPOSITION_FLAGS_CHANGE_MODE, 0, float("nan"),
+                                  int(lat * 1e7), int(lon * 1e7), self.home_alt + self.route_alt)
+        self.route_sent = now
+
