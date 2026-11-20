@@ -92,6 +92,7 @@ function connect() {
     else if (m.type === "state") showState(m);
     else if (m.type === "progress") showProgress(m);
     else if (m.type === "flight" || m.type === "flight_status") window.onFlight && window.onFlight(m);
+    else if (m.type === "fault") window.onFault && window.onFault(m);
   };
   ws.onclose = () => setTimeout(connect, 1000);
 }

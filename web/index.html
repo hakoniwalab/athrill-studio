@@ -52,6 +52,19 @@
       </div>
       <div id="hud-banner"></div>
       <div class="hud hud-buttons"><button id="takeoff" disabled>Take off 2.5 m</button> <button id="land" disabled>Land</button></div>
+      <div class="hud hud-map" id="routebox" hidden>
+        <div class="hud-label">route · click the map to add points (north up, 1 m grid)</div>
+        <canvas id="routemap" width="240" height="240"></canvas>
+        <div class="row plan">fault: stop motor <select id="faultmotor"><option>1</option><option>2</option>
+          <option selected>3</option><option>4</option></select> at point <select id="faultat"><option value="0">none</option></select></div>
+        <div class="row"><button id="flyroute" disabled>Fly route</button> <button id="clearroute">Clear</button></div>
+      </div>
+      <div class="hud hud-fault" id="faultbox" hidden>
+        <div class="hud-label">ESC fault · stop a motor</div>
+        <div class="row"><button data-motor="1">Stop 1</button> <button data-motor="2">Stop 2</button>
+          <button data-motor="3">Stop 3</button> <button data-motor="4">Stop 4</button></div>
+        <div class="row"><button id="restore">Restore all</button></div>
+      </div>
     </div>
     <aside id="flightside">
       <h2>PX4 console <span class="hint">(NSH on the emulated Pixhawk 4)</span></h2>

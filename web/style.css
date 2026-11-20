@@ -76,3 +76,18 @@ aside h2 { font-size: 15px; margin: 0 0 8px; }
 #hud-banner.show { opacity: 1; }
 #hud-banner.alarm { background: rgba(200, 30, 40, 0.88); }
 @media (max-width: 700px) { #flight { flex-direction: column; } #flightside { width: auto; height: 40%; } }
+
+/* the route map and the ESC fault buttons (firmware with route / rotor_fault) */
+.hud-map { right: 12px; top: 52px; pointer-events: auto; }
+.hud-map canvas { display: block; margin: 6px 0; border-radius: 6px; cursor: crosshair; background: rgba(255,255,255,0.06); }
+.hud-fault { right: 12px; bottom: 12px; pointer-events: auto; }
+.hud .row { display: flex; gap: 6px; margin-top: 6px; }
+.hud button { font-size: 13px; }
+.hud-fault button.on { background: #f85149; color: #fff; border-color: #f85149; }
+.hud .plan { align-items: center; color: #d6dde5; }
+.hud .plan select { font-size: 12px; }
+#hud-banner.good { background: rgba(26, 127, 55, 0.9); }
+#hud-banner.warn { background: rgba(178, 106, 0, 0.92); }
+#flightlog .good { color: #3fb950; }
+#flightlog .alarm { color: #ff7b72; }
+#flightlog .warn { color: #e3a33a; }

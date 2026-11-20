@@ -119,6 +119,24 @@ boards:
           - HAKO_AIRCRAFT_WORKER 1
           - DEVICE_CONFIG_STM32_JIT 1
           - DEVICE_CONFIG_DEVICE_TICK_SKIP 1
+      # Fly a route and stop a motor when you like: the same flight on DShot ESCs, with the sensor device as the
+      # ESC's fault model. The Flight tab's map sets the route (north/east points from home), and the motor
+      # buttons write the rotor scales Studio keeps in {run}/rotor-fault.txt, which the sensor device reads
+      # every 20 ms of virtual time (HAKO_SENSOR_DEVICE_ROTOR_FAULT_FILE). PX4 detects a stopped motor from the
+      # ESC telemetry.
+      - id: px4-x500-route
+        title: PX4 v1.17.0 x500, fly a route and stop a motor from the browser
+        athrill: work/drone-motor/athrill3
+        devicetree: work/drone-motor/athrill-device/boards/pixhawk4/pixhawk4-hakoniwa-dshot-asset.dtb
+        elf: work/download/px4_fmu-v5_default.elf
+        seconds: 0
+        cwd: work/drone-motor/drone-core
+        copy: [work/drone-motor/seed-dshot/fram.bin, work/drone-motor/seed-dshot/sd.img]
+        mavlink: tcp:127.0.0.1:5760
+        flight_trace: true
+        rotor_fault: 4
+        route: true
+        device_config: *motor_device_config
       # The motor-failure demo: Studio takes off to 2.5 m as soon as PX4 is
       # ready, and the emulated ESC of motor 3 stops its motor at 40 s of virtual
       # time. PX4 detects it from the ESC telemetry and the x500 comes down.
