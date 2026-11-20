@@ -92,7 +92,7 @@ boards:
           - DEVICE_CONFIG_STM32_SDCARD_IMAGE {run}/sd.img
           - DEVICE_CONFIG_STM32_UART2_TCP_PORT 5760
           - HAKO_SENSOR_DEVICE_IRQ 1000
-          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone/lib/libhako_sensor_device_inproc.dylib
+          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone/plugin
           - HAKO_AIRCRAFT_CONFIG_PATH {root}/work/drone/airframe
           - HAKO_AIRCRAFT_WORKER 1
       # The same flight with DShot600 ESCs and the sensor device's motor-status
@@ -114,7 +114,7 @@ boards:
           - DEVICE_CONFIG_STM32_SDCARD_IMAGE {run}/sd.img
           - DEVICE_CONFIG_STM32_UART2_TCP_PORT 5760
           - HAKO_SENSOR_DEVICE_IRQ 1000
-          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone-motor/lib/libhako_sensor_device_inproc_motor.dylib
+          - DEVICE_CONFIG_DEVICE_PLUGIN_0 hakoniwa%2Csensor-device={root}/work/drone-motor/plugin
           - HAKO_AIRCRAFT_CONFIG_PATH {root}/work/drone-motor/drone-core/config/drone/x500-athrill-px4
           - HAKO_AIRCRAFT_WORKER 1
           - DEVICE_CONFIG_STM32_JIT 1

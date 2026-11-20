@@ -3,7 +3,7 @@
 # flying the Hakoniwa Drone x500, with the aircraft inside Athrill (the
 # in-process sensor device: no Hakoniwa runtime, no second process).
 #   tools/setup-drone.sh <inproc library dir> <hakoniwa-drone-core dir> <airframe dir> <seed dir>
-# <inproc library dir>   libhako_sensor_device_inproc.dylib (athrill-device board/common,
+# <inproc library dir>   libhako_sensor_device_inproc.dylib or .so (athrill-device board/common,
 #                        HAKO_SENSOR_DEVICE_BUILD_INPROC=ON, 32-bit) and the libraries beside it
 # <hakoniwa-drone-core>  the Hakoniwa Drone release root (its MuJoCo models are relative to it)
 # <airframe dir>         the x500 airframe (drone_config_0.json)
@@ -16,12 +16,15 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 D=$HERE/work/drone
 abs() { (cd "$1" && pwd); }
 mkdir -p "$D"
-for name in lib drone-core airframe seed; do rm -f "$D/$name"; done
+for name in lib plugin drone-core airframe seed; do rm -f "$D/$name"; done
 ln -s "$(abs "$1")" "$D/lib"
 ln -s "$(abs "$2")" "$D/drone-core"
 ln -s "$(abs "$3")" "$D/airframe"
 ln -s "$(abs "$4")" "$D/seed"
-for need in lib/libhako_sensor_device_inproc.dylib airframe/drone_config_0.json seed/fram.bin seed/sd.img; do
+# the sensor device for this host: .dylib on macOS, .so on Linux
+case "$(uname -s)" in Darwin) EXT=dylib ;; *) EXT=so ;; esac
+ln -s "lib/libhako_sensor_device_inproc.$EXT" "$D/plugin"
+for need in plugin airframe/drone_config_0.json seed/fram.bin seed/sd.img; do
 	[ -e "$D/$need" ] || { echo "missing $D/$need" >&2; exit 1; }
 done
 echo "drone ready in $D"
