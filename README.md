@@ -104,7 +104,8 @@ python3 -m studio.server       # then open http://127.0.0.1:8765/
   athrill-device (`board/common`, `HAKO_SENSOR_DEVICE_BUILD_INPROC=ON`), a Hakoniwa Drone release, the x500 airframe
   and PX4's first-boot images (athrill-target-stm32 `examples/px4-hakoniwa`):
   `tools/setup-drone.sh <inproc library dir> <hakoniwa-drone-core> <airframe dir> <seed dir>`.
-  `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API.
+  `python3 tests/flight_smoke.py` takes off, holds 2.5 m and lands through the API (`--firmware px4-x500-dshot`
+  for the same flight on the DShot ESCs of the next item).
 - **Flight with rotor status, and the motor-failure demo**: with the sensor device's motor-status build
   (athrill-device `HAKO_SENSOR_DEVICE_BUILD_INPROC_MOTOR=ON`), "PX4 ... x500 (in process, DShot ESCs)" flies the x500
   on DShot600 ESCs, and "PX4 ... x500, motor 3 stops at 40 s" takes off by itself and stops motor 3 in its emulated
